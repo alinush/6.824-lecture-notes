@@ -1,0 +1,34 @@
+# Protect the htaccess file
+<Files .htaccess>
+Order Allow,Deny
+Deny from all
+</Files>
+
+# Protect .git/
+<Files .git>
+Order Allow,Deny
+Deny from all
+</Files>
+
+<Files .gitmodules>
+Order Allow,Deny
+Deny from all
+</Files>
+
+<Files .gitignore>
+Order Allow,Deny
+Deny from all
+</Files>
+
+<Files README.md>
+Order Allow,Deny
+Deny from all
+</Files>
+
+<Files README.html>
+Order Allow,Deny
+Deny from all
+</Files>
+
+# Disable directory browsing
+Options All -Indexes

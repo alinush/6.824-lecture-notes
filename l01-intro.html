@@ -1,0 +1,517 @@
+<h1>6.824 2015 Lecture 1: Introduction</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the 6.824 <a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from Spring 2015.</p>
+
+<h2>Distributed systems</h2>
+
+<h3>What is a distributed system?</h3>
+
+<ul>
+<li>multiple networked cooperating computers</li>
+<li><em>Example:</em> Internet E-Mail, Athena file server, Google MapReduce, Dropbox, etc.</li>
+</ul>
+
+<h3>Why distribute?</h3>
+
+<ul>
+<li>to connect physically separate entities</li>
+<li>to achieve security via physical isolation</li>
+<li>to tolerate faults via replication at separate sites</li>
+<li>to increase performance via parallel CPUs/mem/disk/net</li>
+</ul>
+
+<p>...but:</p>
+
+<ul>
+<li>complex, hard to debug</li>
+<li>new classes of problems, e.g. partial failure (did he accept my e-mail?)</li>
+<li>Leslie Lamport: <em>"A distributed system is one in which the failure of a
+computer you didn't even know existed can render your own computer
+unusable."</em></li>
+<li><em>Advice:</em> don't distribute if a central system will work</li>
+</ul>
+
+<h3>Why take this course?</h3>
+
+<ul>
+<li>interesting -- hard problems, non-obvious solutions</li>
+<li>active research area -- lots of progress + big unsolved problems</li>
+<li>used by real systems -- unlike 10 years ago -- driven by the rise of big Web sites</li>
+<li>hands-on -- you'll build a real system in the labs</li>
+</ul>
+
+<h2>Course structure</h2>
+
+<p>See the course <a href="http://pdos.csail.mit.edu/6.824">website</a>.</p>
+
+<h3>Course components</h3>
+
+<ul>
+<li>Lectures about big ideas, papers, labs</li>
+<li>Readings: research papers as case studies
+<ul>
+<li>please read papers before class</li>
+<li>paper for today: MapReduce paper</li>
+<li>each paper has a question for you to answer and one for you to ask (see web site)</li>
+<li>submit question &amp; answer before class, one or two paragraphs</li>
+</ul></li>
+<li>Mid-term quiz in class, and final exam</li>
+<li>Labs: build increasingly sophisticated fault-tolerant services
+<ul>
+<li>First lab is due on Monday</li>
+</ul></li>
+<li>Project: design and build a distributed system of your choice or the system we pose
+in the last month of the course
+<ul>
+<li>teams of two or three</li>
+<li>project meetings with course staff</li>
+<li>demo in last class meeting</li>
+</ul></li>
+</ul>
+
+<h2>Main topics</h2>
+
+<p><em>Example:</em></p>
+
+<ul>
+<li>a shared file system, so users can cooperate, like Dropbox
+<ul>
+<li>but this lecture isn't about dropbox specifically</li>
+<li>just an example goal to get feel for distributed system problems</li>
+</ul></li>
+<li>lots of client computers</li>
+</ul>
+
+<h3>Architecture</h3>
+
+<ul>
+<li>Choice of interfaces
+<ul>
+<li>Monolithic file server?</li>
+<li>Block server(s) -> FS logic in clients?</li>
+<li>Separate naming + file servers?</li>
+<li>Separate FS + block servers?</li>
+</ul></li>
+<li>Single machine room or unified wide area system?
+<ul>
+<li>Wide-area dramatically more difficult.</li>
+</ul></li>
+<li>Client/server or peer-to-peer?
+<ul>
+<li>Interact w/ performance, security, fault behavior.</li>
+</ul></li>
+</ul>
+
+<h3>Implementation</h3>
+
+<ul>
+<li>How do clients/servers communicate?
+<ul>
+<li>Direct network communication is pretty painful</li>
+<li>Want to hide network stuff from application logic</li>
+</ul></li>
+<li>Most systems organize distribution with some structuring framework(s)
+<ul>
+<li>RPC, RMI, DSM, MapReduce, etc.</li>
+</ul></li>
+</ul>
+
+<h3>Performance</h3>
+
+<ul>
+<li>Distribution can hurt: network b/w and latency bottlenecks
+<ul>
+<li>Lots of tricks, e.g. caching, threaded servers</li>
+</ul></li>
+<li>Distribution can help: parallelism, pick server near client
+<ul>
+<li>Idea: scalable design
+<ul>
+<li>We would like performance to scale linearly with the addition of machines</li>
+<li><code>N x</code> servers <code>-&gt; N x</code> total performance</li>
+</ul></li>
+</ul></li>
+<li>Need a way to divide the load by N
+<ul>
+<li>divide the state by N
+<ul>
+<li>split by user</li>
+<li>split by file name</li>
+<li>"sharding" or "partitioning"</li>
+</ul></li>
+</ul></li>
+<li>Rarely perfect <code>-&gt;</code> only scales so far
+<ul>
+<li>Global operations, e.g. search</li>
+<li>Load imbalance
+<ul>
+<li>One very active user</li>
+<li>One very popular file</li>
+<li><code>-&gt;</code> one server 100%, added servers mostly idle</li>
+<li><code>-&gt; N x</code> servers <code>-&gt;</code> <code>1 x</code> performance</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h3>Fault tolerance</h3>
+
+<ul>
+<li>Dropbox: ~10,000 servers; <a href="http://www.datacenterknowledge.com/archives/2013/10/23/how-dropbox-stores-stuff-for-200-million-users/">some fail</a></li>
+<li>Can I use my files if there's a failure?
+<ul>
+<li>Some part of network, some set of servers</li>
+</ul></li>
+<li>Maybe: replicate the data on multiple servers
+<ul>
+<li>Perhaps client sends every operation to both</li>
+<li>Maybe only needs to wait for one reply</li>
+</ul></li>
+<li><em>Opportunity:</em> operate from two "replicas" independently if partitioned?</li>
+<li><em>Opportunity:</em> can 2 servers yield 2x availability <strong>AND</strong> 2x performance?</li>
+</ul>
+
+<h3>Consistency</h3>
+
+<ul>
+<li>Contract w/ apps/users about meaning of operations
+<ul>
+<li>e.g. "read yields most recently written value"</li>
+<li>hard due to partial failure, replication/caching, concurrency</li>
+</ul></li>
+<li><em>Problem:</em> keep replicas identical
+<ul>
+<li>If one is down, it will miss operations
+<ul>
+<li>Must be brought up to date after reboot</li>
+</ul></li>
+<li>If net is broken, <em>both</em> replicas maybe live, and see different ops
+<ul>
+<li>Delete file, still visible via other replica</li>
+<li><em>"split brain"</em> -- usually bad</li>
+</ul></li>
+</ul></li>
+<li><em>Problem:</em> clients may see updates in different orders
+<ul>
+<li>Due to caching or replication</li>
+<li>I make <code>grades.txt</code> unreadable, then TA writes grades to it</li>
+<li>What if the operations run in different order on different replicas?</li>
+</ul></li>
+<li>Consistency often hurts performance (communication, blocking)
+<ul>
+<li>Many systems cut corners -- "relaxed consistency"</li>
+<li>Shifts burden to applications</li>
+</ul></li>
+</ul>
+
+<h2>Labs</h2>
+
+<p>Focus: fault tolerance and consistency -- central to distributed systems.</p>
+
+<ul>
+<li>lab 1: MapReduce</li>
+<li>labs 2/3/4: storage servers
+<ul>
+<li>progressively more sophisticated (tolerate more kinds of faults)
+<ul>
+<li>progressively harder too!</li>
+</ul></li>
+<li>patterned after real systems, e.g. MongoDB</li>
+<li>Lab 4 has core of a real-world design for 1000s of servers</li>
+</ul></li>
+</ul>
+
+<p>What you'll learn from the labs:</p>
+
+<ul>
+<li>easy to listen to lecture / read paper and think you understand</li>
+<li>building forces you to really understand
+<ul>
+<li><em>"I hear and I forget, I see and I remember, I do and I understand"</em> (Confucius?)</li>
+</ul></li>
+<li>you'll have to do some design yourself
+<ul>
+<li>we supply skeleton, requirements, and tests</li>
+<li>but we leave you substantial scope to solve problems your own way</li>
+</ul></li>
+<li>you'll get experience debugging distributed systems</li>
+</ul>
+
+<p>Test cases simulate failure scenarios:</p>
+
+<ul>
+<li>distributed systems are tricky to debug: concurrency and failures
+<ul>
+<li>many client and servers operating in parallel</li>
+<li>test cases make servers fail at the "most" inopportune time</li>
+</ul></li>
+<li><em>think first</em> before starting to code!
+<ul>
+<li>otherwise your solution will be a mess</li>
+<li>and/or, it will take you a lot of time</li>
+</ul></li>
+<li>code review
+<ul>
+<li>learn from others</li>
+<li>judge other solutions   </li>
+</ul></li>
+</ul>
+
+<p>We've tried to ensure that the hard problems have to do w/ distributed systems:</p>
+
+<ul>
+<li>not e.g. fighting against language, libraries, etc.</li>
+<li>thus Go (type-safe, garbage collected, slick RPC library)</li>
+<li>thus fairly simple services (MapReduce, key/value store)</li>
+</ul>
+
+<h2>Lab 1: MapReduce</h2>
+
+<ul>
+<li>help you get up to speed on Go and distributed programming</li>
+<li>first exposure to some fault tolerance 
+<ul>
+<li>motivation for better fault tolerance in later labs</li>
+</ul></li>
+<li>motivating app for many papers</li>
+<li>popular distributed programming framework </li>
+<li>many descendants frameworks </li>
+</ul>
+
+<h3>Computational model</h3>
+
+<ul>
+<li>aimed at document processing
+<ul>
+<li>split doc <code>-&gt; &lt;k1, v1&gt;</code></li>
+<li>run <code>Map(k1, v1)</code> on each split <code>-&gt; &lt;k2, v2&gt;</code></li>
+<li>run <code>Reduce(k2, list(v2))</code> on each partition <code>-&gt; list(v2)</code></li>
+<li>merge result</li>
+</ul></li>
+<li>write a map function and reduce function
+<ul>
+<li>framework takes care of parallelism, distribution, and fault tolerance</li>
+</ul></li>
+<li>some computations are not targeted, such as:
+<ul>
+<li>anything that updates a document</li>
+</ul></li>
+</ul>
+
+<h3>Example: <code>grep</code></h3>
+
+<ul>
+<li>map phase
+<ul>
+<li>master splits input in <code>M</code> partitions</li>
+<li>calls Map on each partition
+<ul>
+<li><code>map(partition) -&gt; list(k1,v1)</code></li>
+<li>search partition for word</li>
+<li>produce a list with one item if word shows up, <code>nil</code> if not</li>
+<li>partition results among <code>R</code> reducers</li>
+</ul></li>
+</ul></li>
+<li>reduce phase
+<ul>
+<li>Reduce job collects 1/R output from each Map job</li>
+<li>all map jobs have completed!</li>
+<li><code>reduce(k1, v1) -&gt; v2</code>
+<ul>
+<li>identity function: <code>v1</code> in, <code>v1</code> out</li>
+</ul></li>
+</ul></li>
+<li>merge phase
+<ul>
+<li>master merges <code>R</code> outputs</li>
+</ul></li>
+</ul>
+
+<h3>Performance</h3>
+
+<ul>
+<li>number of jobs: <code>M x R</code> map jobs</li>
+<li>how much speed up do we get on <code>N</code> machines?
+<ul>
+<li>ideally: <code>N</code></li>
+<li>bottlenecks:
+<ul>
+<li>stragglers</li>
+<li>network calls to collect a Reduce partition </li>
+<li>network calls to interact with FS</li>
+<li>disk I/O calls</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h3>Fault tolerance model</h3>
+
+<ul>
+<li>master is not fault tolerant
+<ul>
+<li><em>assumption:</em> this single machine won't fail during running a MapReduce app</li>
+<li>but many workers, so have to handle their failures</li>
+</ul></li>
+<li>assumption: workers are fail stop
+<ul>
+<li>they fail and stop (e.g., don't send garbled weird packets after a failure)</li>
+<li>they may reboot</li>
+</ul></li>
+</ul>
+
+<h4>What kinds of faults might we want to tolerate?</h4>
+
+<ul>
+<li>network:
+<ul>
+<li>lost packets</li>
+<li>duplicated packets</li>
+<li>temporary network failure
+<ul>
+<li>server disconnected</li>
+<li>network partitioned</li>
+</ul></li>
+</ul></li>
+<li>server:
+<ul>
+<li>server crash+restart   (master versus worker?)</li>
+<li>server fails permanently  (master versus worker?)</li>
+<li>all servers fail simultaneously -- power/earthquake</li>
+<li>bad case: crash mid-way through complex operation
+<ul>
+<li>what happens if we fail in the middle of map or reduce?</li>
+</ul></li>
+<li>bugs -- but not in this course
+<ul>
+<li>what happens when bug in map or reduce? </li>
+<li>same bug in Map over and over?</li>
+<li>management software kills app</li>
+</ul></li>
+</ul></li>
+<li>malice -- but not in this course</li>
+</ul>
+
+<h4>Tools for dealing with faults?</h4>
+
+<ul>
+<li><strong>retry</strong> -- e.g. if packet is lost, or server crash+restart 
+<ul>
+<li>packets (TCP) and MapReduce jobs</li>
+<li>may execute MapReduce job twice: must account for this</li>
+</ul></li>
+<li><strong>replicate</strong> -- e.g. if  one server or part of net has failed
+<ul>
+<li>next labs</li>
+</ul></li>
+<li><strong>replace</strong> -- for long-term health <br />
+<ul>
+<li>e.g., worker</li>
+</ul></li>
+</ul>
+
+<h4>Retry jobs</h4>
+
+<ul>
+<li>network falure: oops execute job twice
+<ul>
+<li>ok for MapReduce, because <code>map()/reduce()</code> produces same output
+<ul>
+<li><code>map()/reduce()</code> are "functional" or "deterministic"</li>
+<li>how about intermediate files?</li>
+<li>atomic rename</li>
+</ul></li>
+</ul></li>
+<li>worker failure: may have executed job or not
+<ul>
+<li>so, we may execute job more than once!</li>
+<li>but ok for MapReduce as long as <code>map()</code> and <code>reduce()</code> functions are deterministic</li>
+<li>what would make <code>map() or reduce()</code> not deterministic?</li>
+<li>is executing a request twice in general ok? 
+<ul>
+<li>no. in fact, often not.</li>
+<li>unhappy customer if you execute one credit card transaction several times</li>
+</ul></li>
+</ul></li>
+<li>adding servers
+<ul>
+<li>easy in MapReduce -- just tell master</li>
+<li>hard in general
+<ul>
+<li>server may have lost state (need to get new state)</li>
+<li>server may have rebooted quickly</li>
+<li>may need to recognize that to bring server up to date</li>
+<li>server may have a new role after reboot (e.g., not the primary)</li>
+<li>these harder issues you would have to deal with to make the MapReduce master fault tolerant</li>
+<li>topic of later labs</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h2>Lab 1 code </h2>
+
+<p>The lab 1 app (see <code>main/wc.go</code>):</p>
+
+<ul>
+<li>stubs for <code>map() and reduce()</code></li>
+<li>you fill them out to implement word count (wc)</li>
+<li>how would you write grep?</li>
+</ul>
+
+<p>The lab 1 sequential implementation (see <code>mapreduce/mapreduce.go</code>):</p>
+
+<ul>
+<li>demo: <code>run wc.go</code></li>
+<li>code walk through start with <code>RunSingle()</code></li>
+</ul>
+
+<p>The lab 1 worker (see <code>mapreduce/worker.go</code>):</p>
+
+<ul>
+<li>the remote procedure calls (RPCs) arguments and replies (see <code>mapreduce/common.go</code>).</li>
+<li>Server side of RPC
+<ul>
+<li>RPC handlers have a particular signature
+<ul>
+<li><code>DoJob</code></li>
+<li><code>Shutdown</code></li>
+</ul></li>
+</ul></li>
+<li><code>RunWorker</code>
+<ul>
+<li><code>rpcs.Register</code>: register named handlers -- so Call() can find them</li>
+<li><code>Listen</code>: create socket on which to listen for RPC requests
+<ul>
+<li>for distributed implementation, replace "unix" w. "tcp"</li>
+<li>replace "me" with a <code>&lt;dns,port&gt;</code> tuple name</li>
+</ul></li>
+<li><code>ServeConn</code>: runs in a separate thread (why?)
+<ul>
+<li>serve RPC concurrently</li>
+<li>a RPC may block</li>
+</ul></li>
+</ul></li>
+<li>Client side of RPC
+<ul>
+<li><code>Register()</code></li>
+</ul></li>
+<li><code>call()</code> (see <code>common.go</code>)
+<ul>
+<li>make an RPC</li>
+<li>lab code dials for each request
+<ul>
+<li>typical code uses a network connection for several requests</li>
+<li>but, real must be prepared to redial anyway</li>
+<li>a network connection failure, doesn't imply a server failure!</li>
+<li>we also do this to introduce failure scenarios easily</li>
+<li>intermittent network failures</li>
+<li>just loosing the reply, but not the request</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<p>The lab 1 master (see mapreduce/master.go)</p>
+
+<ul>
+<li>You write it</li>
+<li>You will have to deal with distributing jobs</li>
+<li>You will have to deal with worker failures</li>
+</ul>
