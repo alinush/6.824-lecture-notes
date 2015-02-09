@@ -1,0 +1,8 @@
+# Protect the htaccess file
+<Files .htaccess>
+Order Allow,Deny
+Deny from all
+</Files>
+
+# Enable directory browsing
+Options All Indexes
