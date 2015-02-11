@@ -5,3 +5,5 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
 
  * Lecture 1: [Introduction](l01-intro.html): distributed system definition, motivations, architecture, implementation, performance, fault-tolerance, consistency, MapReduce 
  * Lecture 2: [Remote Procedure Calls (RPCs)](l02-rpc.html): RPC overview, marshalling, binding, threads, "at-least-once", "at-most-once", "exactly once", Go's RPC, thread synchronization
+ * Lecture 3: [Fault tolerance](l03-fault-tolerance.html): primary-backup replication, state transfer, "split-brain", Remus (NSDI 2008),  
+ 

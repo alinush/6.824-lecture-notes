@@ -40,7 +40,7 @@ See the course [website](http://pdos.csail.mit.edu/6.824).
  - Lectures about big ideas, papers, labs
  - Readings: research papers as case studies
    + please read papers before class
-   + paper for today: MapReduce paper
+   + paper for today: [MapReduce paper](papers/mapreduce.pdf)
    + each paper has a question for you to answer and one for you to ask (see web site)
    + submit question & answer before class, one or two paragraphs
  - Mid-term quiz in class, and final exam
