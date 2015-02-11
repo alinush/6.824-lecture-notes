@@ -1,0 +1,506 @@
+<h1>6.824 2015 Lecture 3: Primary/Backup Replication</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the 6.824 
+<a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from Spring 2015.</p>
+
+<h2>Today</h2>
+
+<ul>
+<li>Replication</li>
+<li><a href="papers/remus.pdf">Remus</a> case study</li>
+<li>Lab 2 introduction</li>
+</ul>
+
+<h2>Fault tolerance</h2>
+
+<ul>
+<li>We'd like a service that continues despite failures!</li>
+<li><strong>Definitions:</strong>
+<ul>
+<li><em>Available</em> -- still usable despite [some class of] failures</li>
+<li><em>Correct</em> -- act just like a single server to clients</li>
+</ul></li>
+<li>Very hard!</li>
+<li>Very useful!</li>
+</ul>
+
+<h3>Need a failure model: what will we try to cope with?</h3>
+
+<ul>
+<li>Independent fail-stop computer failure
+<ul>
+<li>Remus further assumes only one failure at a time</li>
+</ul></li>
+<li>Site-wide power failure (and eventual reboot)</li>
+<li>(Network partition)</li>
+<li>No bugs, no malice</li>
+</ul>
+
+<h3>Core idea: replication</h3>
+
+<ul>
+<li><em>Two</em> servers (or more)</li>
+<li>Each replica keeps state needed for the service</li>
+<li>If one replica fails, others can continue</li>
+</ul>
+
+<h3>Example: fault-tolerant MapReduce master</h3>
+
+<ul>
+<li>Lab 1 workers are already fault-tolerant, but not master</li>
+<li><code>[Diagram: M1, M2, workers]</code></li>
+<li>State:
+<ul>
+<li>worker list</li>
+<li>which jobs done</li>
+<li>which workers idle</li>
+<li>TCP connection state</li>
+<li>program counter</li>
+</ul></li>
+</ul>
+
+<h3>Big questions</h3>
+
+<ul>
+<li>What state to replicate?</li>
+<li>How does replica get state?</li>
+<li>When to cut over to backup?</li>
+<li>Are anomalies visible at cut-over?</li>
+<li>How to repair / re-integrate?</li>
+</ul>
+
+<h3>Two main approaches:</h3>
+
+<ol>
+<li><strong>State transfer</strong>
+<ul>
+<li>"Primary" replica executes the service</li>
+<li>Primary sends [new] state to backups</li>
+</ul></li>
+<li><strong>Replicated state machine</strong>
+<ul>
+<li>All replicas execute all operations</li>
+<li>If same start state &amp;
+same operations &amp;
+same order &amp;
+deterministic &amp;
+<em>then</em> <code>=&gt;</code> same end state</li>
+</ul></li>
+</ol>
+
+<h3><em>State transfer</em> is simpler</h3>
+
+<ul>
+<li>But state may be large, slow to transfer</li>
+<li><em>Remus</em> uses state transfer</li>
+</ul>
+
+<h3><em>Replicated state machine</em> can be more efficient</h3>
+
+<ul>
+<li>If operations are small compared to data</li>
+<li>But complex, e.g. order on multi-core, determinism</li>
+<li>Labs use replicated state machines</li>
+</ul>
+
+<h2>Remus: High Availability via Asynchronous Virtual Machine Replication, NSDI 2008</h2>
+
+<h3>Very ambitious system</h3>
+
+<ul>
+<li>Whole-system replication</li>
+<li>Completely <em>transparent</em> to applications and clients</li>
+<li>High availability for any existing software</li>
+<li>Would be magic if it worked well!</li>
+<li><em>Failure model:</em>
+<ol>
+<li>Independent hardware faults</li>
+<li>Site-wide power failure</li>
+</ol></li>
+</ul>
+
+<h3>Plan 1 (slow, broken):</h3>
+
+<ul>
+<li><code>[Diagram: app, O/S, Remus underneath]</code></li>
+<li>two machines, primary and backup; plus net and other machines</li>
+<li>primary runs o/s and application s/w, talks to clients, etc.</li>
+<li>backup does <em>not</em> initially execute o/s, applications, etc.
+<ul>
+<li>it only executes some Remus code</li>
+</ul></li>
+<li>a few times per second:
+<ul>
+<li>pause primary</li>
+<li>copy <strong>entire RAM</strong>, registers, disk to backup</li>
+<li>resume primary</li>
+</ul></li>
+<li>if primary fails:
+<ul>
+<li>start backup executing!</li>
+</ul></li>
+</ul>
+
+<p><strong>Q:</strong> Is Plan 1 correct?</p>
+
+<ul>
+<li>i.e. does it look just like a single reliable server?</li>
+</ul>
+
+<p><strong>Q:</strong> What will outside world see if primary fails and replica takes over?</p>
+
+<ul>
+<li>Will backup have same state as last visible on primary?</li>
+<li>Might a client request be lost? executed twice?</li>
+</ul>
+
+<p><strong>Q:</strong> How to decide if primary has failed?</p>
+
+<p><strong>Q:</strong> How will clients know to talk to backup rather than primary?</p>
+
+<p><strong>Q:</strong> What if site-wide power failure?</p>
+
+<ul>
+<li>Primary is running some o/s, has a plan for reboot from disk
+"crash-consistent"</li>
+</ul>
+
+<p><strong>Q:</strong> What if primary fails while sending state to backup?</p>
+
+<ul>
+<li>i.e. backup is mid-way through absorbing new state?</li>
+</ul>
+
+<p><strong>Q:</strong> Is Plan 1 efficient?</p>
+
+<ul>
+<li>Can we eliminate the fact that backup <em>state</em> trails the primary?
+<ul>
+<li>Seems very hard!</li>
+<li>Primary would have to tell backup (and wait) on every instruction.</li>
+</ul></li>
+<li>Can we <em>conceal</em> the fact that backup's state lags primary?
+<ul>
+<li>Prevent outside world from <em>seeing</em> that backup is behind last primary state
+<ul>
+<li>e.g. prevent primary sent RPC reply but backup state doesn't reflect that RPC</li>
+<li>e.g. MapReduce <code>Register()</code> RPC, which it would be bad for backup to forget</li>
+</ul></li>
+<li><em>Idea:</em> primary "holds" output until backup state catches up to output point
+<ul>
+<li>e.g. primary receives RPC request, processes it, creates reply packet,
+but Remus holds reply packet until backup has received corresponding state update</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h2>Remus epochs, checkpoints</h2>
+
+<ol>
+<li>Primary runs for a while in Epoch 1 (E1), holding E1's output</li>
+<li>Primary pauses</li>
+<li>Primary copies RAM+disk changes from E1 to local buffer</li>
+<li>Primary resumes execution in E2, holding E2's output</li>
+<li>Primary sends checkpoint of RAM+disk to backup</li>
+<li>Backup copies all to separate RAM, then applies, then ACKs</li>
+<li>Primary releases E1's output</li>
+<li>Backup applies E1's changes to RAM and disk</li>
+</ol>
+
+<p>If primary fails, backup finishes applying last epoch's disk+RAM,
+then starts executing</p>
+
+<p><strong>Q:</strong> Any externally visible anomalies?</p>
+
+<p><strong>Q:</strong> What if primary receives + executes a request, crashes before checkpoint?
+   backup won't have seen request!</p>
+
+<ul>
+<li>That's fine as long as primary did not reply to that request: client will just send request again</li>
+</ul>
+
+<p><strong>Q:</strong> If primary sends a packet, then crashes, is backup guaranteed to have
+   state changes implied by that packet?</p>
+
+<ul>
+<li>Yes. That's the whole point of keeping the sent network packets buffered until the backup is up to date.</li>
+</ul>
+
+<p><strong>Q:</strong> What if primary crashes partway through release of output?
+must backup re-send? How does it know what to re-send?</p>
+
+<p><strong>Q:</strong> How does Remus decide it should switch to backup?</p>
+
+<ul>
+<li>Naive mechanism: If the primary stops talking to the backup, then something went wrong.</li>
+</ul>
+
+<p><strong>Q:</strong> Are there situations in which Remus will incorrectly activate the backup? i.e. primary is actually alive</p>
+
+<ul>
+<li>Network partition...</li>
+</ul>
+
+<p><strong>Q:</strong> When primary recovers, how does Remus restore replication? Needed, since eventually active ex-backup will itself fail</p>
+
+<p><strong>Q:</strong> What if <em>both</em> fail, e.g. site-wide power failure?</p>
+
+<ul>
+<li>RAM content will be lost, but disks will probably survive</li>
+<li>After power is restored, reboot guest from one of the disks
+<ul>
+<li>O/S and application recovery code will execute</li>
+</ul></li>
+<li>disk must be "crash-consistent"
+<ul>
+<li>So probably not the backup disk if was in middle of installing checkpoint</li>
+</ul></li>
+<li>disk shouldn't reflect any held outputs (... why not?)
+<ul>
+<li>So probably not the primary's disk if was executing</li>
+</ul></li>
+<li>I do not understand this part of the paper (Section 2.5)
+<ul>
+<li>Seems to be a window during which neither disk could be used if power failed
+<ul>
+<li>primary writes its disk during epoch</li>
+<li>meanwhile backup applies last epoch's writes to its disk</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<p><strong>Q:</strong> In what situations will Remus likely have good performance?</p>
+
+<p><strong>Q:</strong> In what situations will Remus likely have low performance?</p>
+
+<p><strong>Q:</strong> Should epochs be short or long?</p>
+
+<h2>Remus evaluation</h2>
+
+<ul>
+<li><em>Summary:</em> 1/2 to 1/4 native speed</li>
+<li>Checkpoints are big and take time to send</li>
+<li>Output hold limits speed at which clients can interact</li>
+</ul>
+
+<h3>Why so slow?</h3>
+
+<ul>
+<li>Checkpoints are big and take time to generate and send
+<ul>
+<li>100ms for SPECweb2005 -- because many pages written</li>
+</ul></li>
+<li>So inter-checkpoint intervals must be long</li>
+<li>So output must be held for quite a while</li>
+<li>So client interactions are slow
+<ul>
+<li>Only 10 RPCs per second per client</li>
+</ul></li>
+</ul>
+
+<h3>How could one get better performance for replication?</h3>
+
+<ul>
+<li>Big savings possible with application-specific schemes:
+<ul>
+<li>just send state really needed by application, not all state</li>
+<li>send state in optimized format, not whole pages</li>
+<li>send operations if they are smaller than state</li>
+</ul></li>
+<li>likely <em>not</em> transparent to applications
+<ul>
+<li>and probably not to clients either</li>
+</ul></li>
+</ul>
+
+<h2>Primary-backup replication in Lab 2</h2>
+
+<h3>Outline</h3>
+
+<ul>
+<li>simple k/v database</li>
+<li>primary and backup</li>
+<li>replicate by primary sending each operation to backups</li>
+<li>tolerate network problems, including partition
+<ul>
+<li>either keep going, correctly</li>
+<li>or suspend operations until network is repaired</li>
+</ul></li>
+<li>allow replacement of failed servers</li>
+<li>you implement essentially all of this (unlike lab 1)</li>
+</ul>
+
+<h3><em>"View server"</em> decides who primary <code>p</code> and backup <code>b</code> are</h3>
+
+<ul>
+<li><em>Main goal:</em> avoid "split brain" -- disagreement about who primary is</li>
+<li>Clients and servers ask view server</li>
+<li>They don't make independent decisions</li>
+</ul>
+
+<h3>Repair</h3>
+
+<ul>
+<li>view server can co-opt "idle" server as <code>b</code> after old <code>b</code> becomes <code>p</code></li>
+<li>primary initializes new backup's state</li>
+</ul>
+
+<h3>Key points:</h3>
+
+<ol>
+<li>Only one primary at a time!</li>
+<li>The primary must have the latest state!</li>
+</ol>
+
+<p>We will work out some rules to ensure these</p>
+
+<h3>View server</h3>
+
+<ul>
+<li>Maintains a sequence of "views"</li>
+</ul>
+
+<p>Example:</p>
+
+<pre><code>    view #, primary, backup
+    0:      --       --
+    1:      S1       --
+    2:      S1       S2
+    4:      S2       --
+    3:      S2       S3
+</code></pre>
+
+<ul>
+<li>Monitors server liveness
+<ul>
+<li>each server periodically sends a ping RPC (more like a heartbeat)</li>
+<li><em>"dead"</em> if missed <code>N</code> pings in a row</li>
+<li><em>"live"</em> after single ping</li>
+</ul></li>
+<li>Can be more than two servers pinging view server
+<ul>
+<li>if more than two, <em>"idle"</em> servers</li>
+</ul></li>
+<li>If primary is dead:
+<ul>
+<li>new view with previous backup as primary</li>
+</ul></li>
+<li>If backup is dead, or no backup
+<ul>
+<li>new view with previously idle server as backup</li>
+</ul></li>
+<li>OK to have a view with just a primary, and no backup
+<ul>
+<li>But -- if an idle server is available, make it the backup</li>
+</ul></li>
+</ul>
+
+<h3>How to ensure new primary has up-to-date replica of state?</h3>
+
+<ul>
+<li>Only promote previous backup
+<ul>
+<li>i.e. don't make an idle server the primary</li>
+</ul></li>
+<li>Backup must remember if it has been initialized by primary
+<ul>
+<li>If not, don't function as primary even if promoted!</li>
+</ul></li>
+</ul>
+
+<p><strong>Q:</strong> Can more than one server think it is primary?</p>
+
+<pre><code>    1: S1, S2
+       net broken, so viewserver thinks S1 dead but it's alive
+    2: S2, --
+    now S1 alive and not aware of view #2, so S1 still thinks it is primary
+    AND S2 alive and thinks it is primary
+    =&gt; split brain, no good
+</code></pre>
+
+<h3>How to ensure only one server acts as primary?</h3>
+
+<p>...even though more than one may <em>think</em> it is primary.</p>
+
+<p><em>"Acts as"</em> <code>==</code> executes and responds to client requests</p>
+
+<p><em>The basic idea:</em></p>
+
+<pre><code>    1: S1 S2
+    2: S2 --
+    S1 still thinks it is primary
+    S1 must forward ops to S2
+    S2 thinks S2 is primary
+    so S2 must reject S1's forwarded ops
+</code></pre>
+
+<p>The rules:</p>
+
+<ol>
+<li>Primary in view <code>i</code> must have been primary or backup in view <code>i-1</code></li>
+<li>Primary must wait for backup to accept each request
+<ul>
+<li><strong>Q:</strong> What if there's no backup?</li>
+</ul></li>
+<li>Non-backup must reject forwarded requests</li>
+<li>Non-primary must reject direct client requests</li>
+<li>Every operation must be before or after state transfer</li>
+</ol>
+
+<p>Example:</p>
+
+<pre><code>    1: S1, S2
+       viewserver stops hearing Pings from S1
+    2: S2, --
+       it may be a while before S2 hears about view #2
+    before S2 hears about view #2
+      S1 can process ops from clients, S2 will accept forwarded requests
+      S2 will reject ops from clients who have heard about view #2
+    after S2 hears about view #2
+      if S1 receives client request, it will forward, S2 will reject
+        so S1 can no longer act as primary
+      S1 will send error to client, client will ask viewserver for new view,
+         client will re-send to S2
+    the true moment of switch-over occurs when S2 hears about view #2
+</code></pre>
+
+<h3>How can new backup get state?</h3>
+
+<ul>
+<li>e.g. all the keys and values</li>
+<li>if S2 is backup in view <code>i</code>, but was not in view <code>i-1</code>,
+<ul>
+<li>S2 should ask primary to transfer the complete state</li>
+</ul></li>
+</ul>
+
+<h3>Rule for state transfer:</h3>
+
+<ul>
+<li>every operation (<code>Put/Get/Append</code>) must be either before or after state xfer
+<ul>
+<li><code>==</code> state xfer must be atomic w.r.t. operations</li>
+</ul></li>
+<li>either
+<ul>
+<li>op is before, and xferred state reflects op</li>
+<li>op is after, xferred state doesn't reflect op, primary forwards op after state</li>
+</ul></li>
+</ul>
+
+<p><strong>Q:</strong> Does primary need to forward <code>Get()</code>'s to backup?</p>
+
+<ul>
+<li>After all, <code>Get()</code> doesn't change anything, so why does backup need to know?</li>
+<li>and the extra RPC costs time</li>
+</ul>
+
+<p><strong>Q:</strong> How could we make primary-only <code>Get()</code>'s work?</p>
+
+<p><strong>Q:</strong> Are there cases when the Lab 2 protocol cannot make forward progress?</p>
+
+<ul>
+<li>View service fails</li>
+<li>Primary fails before backup gets state</li>
+<li>We will start fixing those in Lab 3</li>
+</ul>
