@@ -18,7 +18,10 @@
 <li><strong>Definitions:</strong>
 <ul>
 <li><em>Available</em> -- still usable despite [some class of] failures</li>
-<li><em>Correct</em> -- act just like a single server to clients</li>
+<li><em>Correct</em> -- act just like a single server to clients
+<ul>
+<li>A lot of issues that come up have to do with <em>correctness</em></li>
+</ul></li>
 </ul></li>
 <li>Very hard!</li>
 <li>Very useful!</li>
@@ -27,11 +30,19 @@
 <h3>Need a failure model: what will we try to cope with?</h3>
 
 <ul>
-<li>Independent fail-stop computer failure
+<li><em>Most common:</em> Independent fail-stop computer failures
 <ul>
+<li><em>fail-stop failures:</em> computed correctly for a while and then stopped
+<ul>
+<li>as opposed to computing incorrectly (different situation)</li>
+</ul></li>
+<li>have to assume independence of failures 
+<ul>
+<li>(o.w. we could have primary fail <code>=&gt;</code> backup fail <code>=&gt;</code> fffffuu....)</li>
+</ul></li>
 <li>Remus further assumes only one failure at a time</li>
 </ul></li>
-<li>Site-wide power failure (and eventual reboot)</li>
+<li><em>Another model:</em> Site-wide power failure (and eventual reboot)</li>
 <li>(Network partition)</li>
 <li>No bugs, no malice</li>
 </ul>
@@ -62,11 +73,23 @@
 <h3>Big questions</h3>
 
 <ul>
-<li>What state to replicate?</li>
+<li>What <em>state</em> to replicate?
+<ul>
+<li><em>Example:</em> Remus replicates all of RAM and the CPU state</li>
+</ul></li>
 <li>How does replica get state?</li>
-<li>When to cut over to backup?</li>
-<li>Are anomalies visible at cut-over?</li>
-<li>How to repair / re-integrate?</li>
+<li>When to <em>cut over</em> to backup?
+<ul>
+<li>Is primary really down or is just the network down?</li>
+</ul></li>
+<li>Are anomalies visible at cut-over?
+<ul>
+<li>What will clients see?</li>
+</ul></li>
+<li>How to repair / re-integrate?
+<ul>
+<li>How to get a new backup?</li>
+</ul></li>
 </ul>
 
 <h3>Two main approaches:</h3>
@@ -76,15 +99,17 @@
 <ul>
 <li>"Primary" replica executes the service</li>
 <li>Primary sends [new] state to backups</li>
+<li><em>Example:</em> Remus</li>
 </ul></li>
 <li><strong>Replicated state machine</strong>
 <ul>
-<li>All replicas execute all operations</li>
+<li>All replicas (primary and backup) execute all operations</li>
 <li>If same start state &amp;
 same operations &amp;
 same order &amp;
 deterministic &amp;
 <em>then</em> <code>=&gt;</code> same end state</li>
+<li><em>Ops</em> are transferred and not the state</li>
 </ul></li>
 </ol>
 
@@ -99,7 +124,11 @@ deterministic &amp;
 
 <ul>
 <li>If operations are small compared to data</li>
-<li>But complex, e.g. order on multi-core, determinism</li>
+<li>But complex, e.g. order on multi-core, determinism
+<ul>
+<li>Hard to make sure everyone got to the same state</li>
+<li>Determinism can be problematic (time, threads, etc.)</li>
+</ul></li>
 <li>Labs use replicated state machines</li>
 </ul>
 
@@ -123,7 +152,7 @@ deterministic &amp;
 
 <ul>
 <li><code>[Diagram: app, O/S, Remus underneath]</code></li>
-<li>two machines, primary and backup; plus net and other machines</li>
+<li>two machines, <em>primary</em> and <em>backup</em>; plus net and other machines</li>
 <li>primary runs o/s and application s/w, talks to clients, etc.</li>
 <li>backup does <em>not</em> initially execute o/s, applications, etc.
 <ul>
@@ -132,7 +161,13 @@ deterministic &amp;
 <li>a few times per second:
 <ul>
 <li>pause primary</li>
-<li>copy <strong>entire RAM</strong>, registers, disk to backup</li>
+<li>copy <strong>entire RAM</strong>, registers, disk to backup
+<ul>
+<li>10Gbps = 1GB/s network bandwidth</li>
+<li>100MB/s disk bandwidth</li>
+<li>network bandwidth limits RAM transfer rate</li>
+<li>disk bandwidth limits disk transfer rate</li>
+</ul></li>
 <li>resume primary</li>
 </ul></li>
 <li>if primary fails:
@@ -141,17 +176,24 @@ deterministic &amp;
 </ul></li>
 </ul>
 
-<p><strong>Q:</strong> Is Plan 1 correct?</p>
+<p><strong>Q:</strong> Is Plan 1 correct (as described above)?</p>
 
 <ul>
 <li>i.e. does it look just like a single reliable server?</li>
+<li>No:
+<ul>
+<li>client sends write req. to primary, primary replies before backup had a chance to copy the new state</li>
+<li>primary fails, backup takes over, but it does not reflect the last write req.</li>
+<li>client will be screwed because his write was lost</li>
+</ul></li>
 </ul>
 
 <p><strong>Q:</strong> What will outside world see if primary fails and replica takes over?</p>
 
 <ul>
 <li>Will backup have same state as last visible on primary?</li>
-<li>Might a client request be lost? executed twice?</li>
+<li>Might a client request be lost? Executed twice?</li>
+<li>Yes: see above question</li>
 </ul>
 
 <p><strong>Q:</strong> How to decide if primary has failed?</p>
@@ -169,6 +211,16 @@ deterministic &amp;
 
 <ul>
 <li>i.e. backup is mid-way through absorbing new state?</li>
+</ul>
+
+<p><strong>Q:</strong> What if primary gets request, sends checkpoint to backup, and just before replying primary fails?</p>
+
+<ul>
+<li>TCP layer will take care of this? If client retransmits request, that could be problematic (side effects). So hopefully
+TCP kicks in and notices that no reply came back. How? Primary was just about to reply, but Remus held the
+reply in the buffer. Backup will have same state so it'll think it has replied and wait for an ACK from
+the client, which will never come because the client got nothing. Thus, backup will retransmit the packets
+that the primary never had a chance to and finally get the ACK from the client.</li>
 </ul>
 
 <p><strong>Q:</strong> Is Plan 1 efficient?</p>
@@ -318,9 +370,9 @@ must backup re-send? How does it know what to re-send?</p>
 <h3>Outline</h3>
 
 <ul>
-<li>simple k/v database</li>
+<li>simple key/value database</li>
 <li>primary and backup</li>
-<li>replicate by primary sending each operation to backups</li>
+<li><em>replicated state machine:</em> replicate by primary sending each operation to backups</li>
 <li>tolerate network problems, including partition
 <ul>
 <li>either keep going, correctly</li>
@@ -440,7 +492,10 @@ must backup re-send? How does it know what to re-send?</p>
 <li>Primary in view <code>i</code> must have been primary or backup in view <code>i-1</code></li>
 <li>Primary must wait for backup to accept each request
 <ul>
-<li><strong>Q:</strong> What if there's no backup?</li>
+<li><strong>Q:</strong> What if there's no backup or the backup doesn't know it's a backup?</li>
+<li><strong>A:</strong> Primary can't make progress without a backup if it's part of the view, so it just waits</li>
+<li><strong>A:</strong> If the view is updated and the backup is taken out of the 
+view then primary can operate in "dangerous mode" without a backup</li>
 </ul></li>
 <li>Non-backup must reject forwarded requests</li>
 <li>Non-primary must reject direct client requests</li>
@@ -493,6 +548,16 @@ must backup re-send? How does it know what to re-send?</p>
 <ul>
 <li>After all, <code>Get()</code> doesn't change anything, so why does backup need to know?</li>
 <li>and the extra RPC costs time</li>
+<li>has to do with ensuring there's just one primary:
+<ul>
+<li>suppose there's two primaries by accident (P and P' both think they are primaries)
+<ul>
+<li>how can this occur? network partition?</li>
+</ul></li>
+<li>suppose client sends a Get request to the wrong primary P'</li>
+<li>then P' will try to fwd the request to P (which P' thinks it's the backup)</li>
+<li>then P will tell P': <em>"Hey, bug off, I'm the primary"</em></li>
+</ul></li>
 </ul>
 
 <p><strong>Q:</strong> How could we make primary-only <code>Get()</code>'s work?</p>

@@ -4,49 +4,56 @@
 **Note:** These lecture notes were slightly modified from the ones posted on the 6.824 
 [course website](http://nil.csail.mit.edu/6.824/2015/schedule.html) from Spring 2015.
 
+Flat datacenter storage
+-----------------------
+
 [Flat Datacenter Storage](papers/fds.pdf), _Nightingale, Elson, Fan, Hofmann, Howell, Suzue_, OSDI 2012
     
-why are we looking at this paper?
-  Lab 2 wants to be like this when it grows up
-    though details are all different
-  fantastic performance -- world record cluster sort
-  good systems paper -- details from apps all the way to network
+### Why are we looking at this paper?
 
-what is FDS?
-  a cluster storage system
-  stores giant blobs -- 128-bit ID, multi-megabyte content
-  clients and servers connected by network with high bisection bandwidth
-  for big-data processing (like MapReduce)
-    cluster of 1000s of computers processing data in parallel
+ - Lab 2 wants to be like this when it grows up
+   + though details are all different
+ - fantastic performance -- world record cluster sort
+ - good systems paper -- details from apps all the way to network
 
-high-level design -- a common pattern
-  lots of clients
-  lots of storage servers ("tractservers")
-  partition the data
-  master ("metadata server") controls partitioning
-  replica groups for reliability
+### What is FDS?
 
-why is this high-level design useful?
-  1000s of disks of space
-    store giant blobs, or many big blobs
-  1000s of servers/disks/arms of parallel throughput
-  can expand over time -- reconfiguration
-  large pool of storage servers for instant replacement after failure
+ - a cluster storage system
+ - stores giant blobs -- 128-bit ID, multi-megabyte content
+ - clients and servers connected by network with high bisection bandwidth
+ - for big-data processing (like MapReduce)
+   + cluster of 1000s of computers processing data in parallel
 
-motivating app: MapReduce-style sort 
-  a mapper reads its split 1/Mth of the input file (e.g., a tract)
-    map emits a <key, record> for each record in split
-    map partitions keys among R intermediate files  (M*R intermediate files in total)
-  a reducer reads 1 of R intermediate files produced by each mapper
-    reads M intermediate files (of 1/R size)
-    sorts its input
-    produces 1/Rth of the final sorted output file  (R blobs)
-  FDS sort
-     FDS sort does not store the intermediate files in FDS
-     a client is both a mapper and reducer
-     FDS sort is not locality-aware
-        in mapreduce, master schedules workers on machine that are close to the data
-        e.g.,  in same cluster
+### High-level design -- a common pattern
+
+ - lots of clients
+ - lots of storage servers ("tractservers")
+ - partition the data
+ - master ("metadata server") controls partitioning
+ - replica groups for reliability
+
+### Why is this high-level design useful?
+
+ - 1000s of disks of space
+   + store giant blobs, or many big blobs
+ - 1000s of servers/disks/arms of parallel throughput
+ - can expand over time -- reconfiguration
+ - large pool of storage servers for instant replacement after failure
+
+### Motivating app: MapReduce-style sort 
+ - a mapper reads its split `1/M'th` of the input file (e.g., a tract)
+   + map emits a `<key, record>` for each record in split
+   + map partitions keys among `R` intermediate files  (`M*R` intermediate files in total)
+ - a reducer reads 1 of `R` intermediate files produced by each mapper
+   + reads `M` intermediate files (of `1/R` size)
+   + sorts its input
+   + produces `1/R'th` of the final sorted output file (`R` blobs)
+ - FDS sort
+   + FDS sort does not store the intermediate files in FDS
+   + a client is both a mapper and reducer
+   + FDS sort is not locality-aware
+     * in mapreduce, master schedules workers on machine that are close to the data
+     * e.g.,  in same cluster
      later versions of FDS sort uses more fine-grained work assignment
        e.g., mapper doesn't get 1/N of the input file but something smaller
        deals better with stragglers   

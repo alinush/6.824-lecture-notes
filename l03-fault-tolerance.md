@@ -17,13 +17,18 @@ Fault tolerance
  - **Definitions:**
    + _Available_ -- still usable despite [some class of] failures
    + _Correct_ -- act just like a single server to clients
+     - A lot of issues that come up have to do with _correctness_
  - Very hard!
  - Very useful!
 
 ### Need a failure model: what will we try to cope with?
- - Independent fail-stop computer failure
+ - _Most common:_ Independent fail-stop computer failures
+   + _fail-stop failures:_ computed correctly for a while and then stopped
+     * as opposed to computing incorrectly (different situation)
+   + have to assume independence of failures 
+     * (o.w. we could have primary fail `=>` backup fail `=>` fffffuu....)
    + Remus further assumes only one failure at a time
- - Site-wide power failure (and eventual reboot)
+ - _Another model:_ Site-wide power failure (and eventual reboot)
  - (Network partition)
  - No bugs, no malice
 
@@ -43,23 +48,29 @@ Fault tolerance
    + program counter
 
 ### Big questions
- - What state to replicate?
+ - What _state_ to replicate?
+   + _Example:_ Remus replicates all of RAM and the CPU state
  - How does replica get state?
- - When to cut over to backup?
+ - When to _cut over_ to backup?
+   + Is primary really down or is just the network down?
  - Are anomalies visible at cut-over?
+   + What will clients see?
  - How to repair / re-integrate?
+   + How to get a new backup?
 
 ### Two main approaches:
  1. **State transfer**
     + "Primary" replica executes the service
     + Primary sends [new] state to backups
+    + _Example:_ Remus
  2. **Replicated state machine**
-    + All replicas execute all operations
+    + All replicas (primary and backup) execute all operations
     + If same start state &
       same operations &
       same order &
       deterministic &
       _then_ `=>` same end state
+    + _Ops_ are transferred and not the state
 
 ### _State transfer_ is simpler
  - But state may be large, slow to transfer
@@ -68,6 +79,8 @@ Fault tolerance
 ### _Replicated state machine_ can be more efficient
  - If operations are small compared to data
  - But complex, e.g. order on multi-core, determinism
+   + Hard to make sure everyone got to the same state
+   + Determinism can be problematic (time, threads, etc.)
  - Labs use replicated state machines
 
 Remus: High Availability via Asynchronous Virtual Machine Replication, NSDI 2008
@@ -84,25 +97,34 @@ Remus: High Availability via Asynchronous Virtual Machine Replication, NSDI 2008
 
 ### Plan 1 (slow, broken):
  - `[Diagram: app, O/S, Remus underneath]`
- - two machines, primary and backup; plus net and other machines
+ - two machines, _primary_ and _backup_; plus net and other machines
  - primary runs o/s and application s/w, talks to clients, etc.
  - backup does *not* initially execute o/s, applications, etc.
    + it only executes some Remus code
  - a few times per second:
    + pause primary
    + copy **entire RAM**, registers, disk to backup
+     * 10Gbps = 1GB/s network bandwidth
+     * 100MB/s disk bandwidth
+     * network bandwidth limits RAM transfer rate
+     * disk bandwidth limits disk transfer rate
    + resume primary
  - if primary fails:
    + start backup executing!
 
-**Q:** Is Plan 1 correct?
+**Q:** Is Plan 1 correct (as described above)?
 
  - i.e. does it look just like a single reliable server?
+ - No:
+   + client sends write req. to primary, primary replies before backup had a chance to copy the new state
+   + primary fails, backup takes over, but it does not reflect the last write req.
+   + client will be screwed because his write was lost
 
 **Q:** What will outside world see if primary fails and replica takes over?
 
  - Will backup have same state as last visible on primary?
- - Might a client request be lost? executed twice?
+ - Might a client request be lost? Executed twice?
+ - Yes: see above question
 
 **Q:** How to decide if primary has failed?
 
@@ -116,6 +138,14 @@ Remus: High Availability via Asynchronous Virtual Machine Replication, NSDI 2008
 **Q:** What if primary fails while sending state to backup?
 
  - i.e. backup is mid-way through absorbing new state?
+
+**Q:** What if primary gets request, sends checkpoint to backup, and just before replying primary fails?
+
+ - TCP layer will take care of this? If client retransmits request, that could be problematic (side effects). So hopefully
+   TCP kicks in and notices that no reply came back. How? Primary was just about to reply, but Remus held the
+   reply in the buffer. Backup will have same state so it'll think it has replied and wait for an ACK from
+   the client, which will never come because the client got nothing. Thus, backup will retransmit the packets
+   that the primary never had a chance to and finally get the ACK from the client.
 
 **Q:** Is Plan 1 efficient?
 
@@ -216,9 +246,9 @@ Primary-backup replication in Lab 2
 -----------------------------------
 
 ### Outline
- - simple k/v database
+ - simple key/value database
  - primary and backup
- - replicate by primary sending each operation to backups
+ - _replicated state machine:_ replicate by primary sending each operation to backups
  - tolerate network problems, including partition
    + either keep going, correctly
    + or suspend operations until network is repaired
@@ -301,7 +331,10 @@ The rules:
 
   1. Primary in view `i` must have been primary or backup in view `i-1`
   2. Primary must wait for backup to accept each request
-     + **Q:** What if there's no backup?
+     + **Q:** What if there's no backup or the backup doesn't know it's a backup?
+     + **A:** Primary can't make progress without a backup if it's part of the view, so it just waits
+     + **A:** If the view is updated and the backup is taken out of the 
+       view then primary can operate in "dangerous mode" without a backup
   3. Non-backup must reject forwarded requests
   4. Non-primary must reject direct client requests
   5. Every operation must be before or after state transfer
@@ -339,6 +372,12 @@ Example:
 
  - After all, `Get()` doesn't change anything, so why does backup need to know?
  - and the extra RPC costs time
+ - has to do with ensuring there's just one primary:
+   + suppose there's two primaries by accident (P and P' both think they are primaries)
+     - how can this occur? network partition?
+   + suppose client sends a Get request to the wrong primary P'
+   + then P' will try to fwd the request to P (which P' thinks it's the backup)
+   + then P will tell P': _"Hey, bug off, I'm the primary"_
 
 **Q:** How could we make primary-only `Get()`'s work?
 
