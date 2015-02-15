@@ -81,65 +81,84 @@ deals better with stragglers   </li>
 </ul></li>
 </ul>
 
-<p>The Abstract's main claims are about performance.
-   They set the world-record for disk-to-disk sorting in 2012 for MinuteSort
-      1,033 disks and 256 computers (136 tract servers, 120 clients)
-      1,401 Gbyte in 59.4s</p>
-
-<p>Q: does the abstract's 2 GByte/sec per client seem impressive?
-   how fast can you read a file from Athena AFS? (abt 10 MB/sec)
-   how fast can you read a typical hard drive?
-   how fast can typical networks move data?</p>
-
-<p>Q: abstract claims recover from lost disk (92 GB) in 6.2 seconds
-   that's 15 GByte / sec
-   impressive?
-   how is that even possible? that's 30x the speed of a disk!
-   who might care about this metric?</p>
-
-<p>what should we want to know from the paper?
-  API?
-  layout?
-  finding data?
-  add a server?
-  replication?
-  failure handling?
-  failure model?
-  consistent reads/writes? (i.e. does a read see latest write?)
-  config mgr failure handling?
-  good performance?
-  useful for apps?</p>
+<h3>The abstract's main claims are about performance.</h3>
 
 <ul>
-<li>API
-Figure 1
-128-bit blob IDs
-blobs have a length
-only whole-tract read and write -- 8 MB</li>
+<li>They set the world-record for disk-to-disk sorting in 2012 for MinuteSort
+<ul>
+<li>1,033 disks and 256 computers (136 tract servers, 120 clients)</li>
+<li>1,401 Gbyte in 59.4s</li>
+</ul></li>
 </ul>
 
-<p>Q: why are 128-bit blob IDs a nice interface?
-   why not file names?</p>
-
-<p>Q: why do 8 MB tracts make sense?
-   (Figure 3...)</p>
-
-<p>Q: what kinds of client applications is the API aimed at?
-   and not aimed at?</p>
+<p><strong>Q:</strong> Does the abstract's 2 GByte/sec per client seem impressive?</p>
 
 <ul>
-<li>Layout: how do they spread data over the servers?
-Section 2.2
-break each blob into 8 MB tracts
-TLT maintained by metadata server
-has n entries
-for blob b and tract t, i = (hash(b) + t) mod n
-TLT[i] contains list of tractservers w/ copy of the tract
-clients and servers all have copies of the latest TLT table</li>
+<li>how fast can you read a file from Athena AFS? (abt 10 MB/sec)</li>
+<li>how fast can you read a typical hard drive?</li>
+<li>how fast can typical networks move data?</li>
 </ul>
 
-<p>Example four-entry TLT with no replication:
-  0: S1
+<p><strong>Q:</strong> Abstract claims recover from lost disk (92 GB) in 6.2 seconds</p>
+
+<ul>
+<li>that's 15 GByte / sec</li>
+<li>impressive?</li>
+<li>how is that even possible? that's 30x the speed of a disk!</li>
+<li>who might care about this metric?</li>
+</ul>
+
+<h3>What should we want to know from the paper?</h3>
+
+<ul>
+<li>API?</li>
+<li>layout?</li>
+<li>finding data?</li>
+<li>add a server?</li>
+<li>replication?</li>
+<li>failure handling?</li>
+<li>failure model?</li>
+<li>consistent reads/writes? (i.e. does a read see latest write?)</li>
+<li>config mgr failure handling?</li>
+<li>good performance?</li>
+<li>useful for apps?</li>
+</ul>
+
+<h4>API</h4>
+
+<ul>
+<li>Figure 1</li>
+<li>128-bit blob IDs</li>
+<li>blobs have a length</li>
+<li>only whole-tract read and write -- 8 MB</li>
+</ul>
+
+<p><strong>Q:</strong> Why are 128-bit blob IDs a nice interface?
+ - Why not file names?</p>
+
+<p><strong>Q:</strong> Why do 8 MB tracts make sense?
+ - (Figure 3...)</p>
+
+<p><strong>Q:</strong> What kinds of client applications is the API aimed at?
+ - and not aimed at?</p>
+
+<h4>Layout: how do they spread data over the servers?</h4>
+
+<ul>
+<li>Section 2.2</li>
+<li>break each blob into 8 MB tracts</li>
+<li>TLT maintained by metadata server
+<ul>
+<li>has <code>n</code> entries</li>
+<li>for blob <code>b</code> and tract <code>t</code>, <code>i = (hash(b) + t) mod n</code></li>
+<li><code>TLT[i]</code> contains list of tractservers w/ copy of the tract</li>
+</ul></li>
+<li>clients and servers all have copies of the latest TLT table</li>
+</ul>
+
+<h4>Example four-entry TLT with no replication:</h4>
+
+<pre><code>  0: S1
   1: S2
   2: S3
   3: S4
@@ -149,170 +168,230 @@ clients and servers all have copies of the latest TLT table</li>
   S2: 3 7
   S3: 0 4 8
   S4: 1 5 ...
-  FDS is "striping" blobs over servers at tract granularity</p>
+  FDS is "striping" blobs over servers at tract granularity
+</code></pre>
 
-<p>Q: why have tracts at all? why not store each blob on just one server?
-   what kinds of apps will benefit from striping?
-   what kinds of apps won't?</p>
+<p><strong>Q:</strong> hy have tracts at all? Why not store each blob on just one server?
+ - What kinds of apps will benefit from striping?
+ - What kinds of apps won't?</p>
 
-<p>Q: how fast will a client be able to read a single tract?</p>
+<p><strong>Q:</strong> How fast will a client be able to read a single tract?</p>
 
-<p>Q: where does the abstract's single-client 2 GB number come from?</p>
+<p><strong>Q:</strong> Where does the abstract's single-client 2 GB number come from?</p>
 
-<p>Q: why not the UNIX i-node approach?
-   store an array per blob, indexed by tract #, yielding tractserver
-   so you could make per-tract placement decisions
-     e.g. write new tract to most lightly loaded server</p>
+<p><strong>Q:</strong> Why not the UNIX i-node approach?</p>
 
-<p>Q: why not hash(b + t)?</p>
+<ul>
+<li>store an array per blob, indexed by tract #, yielding tractserver</li>
+<li>so you could make per-tract placement decisions
+<ul>
+<li>e.g. write new tract to most lightly loaded server</li>
+</ul></li>
+</ul>
 
-<p>Q: how many TLT entries should there be?
-   how about n = number of tractservers?
-   why do they claim this works badly? Section 2.2</p>
+<p><strong>Q:</strong> Why not <code>hash(b + t)</code>?</p>
 
-<p>The system needs to choose server pairs (or triplets &amp;c) to put in TLT entries
-   For replication
-   Section 3.3</p>
+<p><strong>Q:</strong> How many TLT entries should there be?</p>
 
-<p>Q: how about
-   0: S1 S2
+<ul>
+<li>how about <code>n = number of tractservers</code>?</li>
+<li>why do they claim this works badly? Section 2.2</li>
+</ul>
+
+<p>The system needs to choose server pairs (or triplets &amp;c) to put in TLT entries</p>
+
+<ul>
+<li>For replication</li>
+<li>Section 3.3</li>
+</ul>
+
+<p><strong>Q:</strong> How about:</p>
+
+<pre><code>   0: S1 S2
    1: S2 S1
    2: S3 S4
    3: S4 S3
    ...
-   Why is this a bad idea?
-   How long will repair take?
-   What are the risks if two servers fail?</p>
+</code></pre>
 
-<p>Q: why is the paper's n^2 scheme better?
-   TLT with n^2 entries, with every server pair occuring once
-   0: S1 S2
+<ul>
+<li>Why is this a bad idea?</li>
+<li>How long will repair take?</li>
+<li>What are the risks if two servers fail?</li>
+</ul>
+
+<p><strong>Q:</strong> why is the paper's <code>n^2</code> scheme better?</p>
+
+<p>Example:</p>
+
+<pre><code>   0: S1 S2
    1: S1 S3
    2: S1 S4
    3: S2 S1
    4: S2 S3
    5: S2 S4
    ...
-   How long will repair take?
-   What are the risks if two servers fail?</p>
-
-<p>Q: why do they actually use a minimum replication level of 3?
-   same n^2 table as before, third server is randomly chosen
-   What effect on repair time?
-   What effect on two servers failing?
-   What if three disks fail?</p>
+</code></pre>
 
 <ul>
-<li><p>Adding a tractserver
-To increase the amount of disk space / parallel throughput
-Metadata server picks some random TLT entries
-Substitutes new server for an existing server in those TLT entries</p></li>
-<li><p>How do they maintain n^2 plus one arrangement as servers leave join?
-Unclear.</p></li>
+<li>TLT with <code>n^2</code> entries, with every server pair occuring once</li>
+<li>How long will repair take?</li>
+<li>What are the risks if two servers fail?</li>
 </ul>
 
-<p>Q: how long will adding a tractserver take?</p>
-
-<p>Q: what about client writes while tracts are being transferred?
-   receiving tractserver may have copies from client(s) and from old srvr
-   how does it know which is newest?</p>
-
-<p>Q: what if a client reads/writes but has an old tract table?</p>
+<p><strong>Q:</strong> Why do they actually use a minimum replication level of 3?</p>
 
 <ul>
-<li>Replication
-A writing client sends a copy to each tractserver in the TLT.
-A reading client asks one tractserver.</li>
+<li>Same <code>n^2</code> table as before, third server is randomly chosen</li>
+<li>What effect on repair time?</li>
+<li>What effect on two servers failing?</li>
+<li>What if three disks fail?</li>
 </ul>
 
-<p>Q: why don't they send writes through a primary?</p>
-
-<p>Q: what problems are they likely to have because of lack of primary?
-   why weren't these problems show-stoppers?</p>
+<h4>Adding a tractserver</h4>
 
 <ul>
-<li>What happens after a tractserver fails?
-Metadata server stops getting heartbeat RPCs
-Picks random replacement for each TLT entry failed server was in
-New TLT gets a new version number
-Replacement servers fetch copies</li>
+<li>To increase the amount of disk space / parallel throughput</li>
+<li>Metadata server picks some random TLT entries</li>
+<li>Substitutes new server for an existing server in those TLT entries</li>
 </ul>
 
-<p>Example of the tracts each server holds:
-  S1: 0 4 8 ...
+<h4>How do they maintain <code>n^2</code> plus one arrangement as servers leave join?</h4>
+
+<p>Unclear.</p>
+
+<p><strong>Q:</strong> How long will adding a tractserver take?</p>
+
+<p><strong>Q:</strong> What about client writes while tracts are being transferred?</p>
+
+<ul>
+<li>receiving tractserver may have copies from client(s) and from old srvr</li>
+<li>how does it know which is newest?</li>
+</ul>
+
+<p><strong>Q:</strong> What if a client reads/writes but has an old tract table?</p>
+
+<h4>Replication</h4>
+
+<ul>
+<li>A writing client sends a copy to each tractserver in the TLT.</li>
+<li>A reading client asks one tractserver.</li>
+</ul>
+
+<p><strong>Q:</strong> Why don't they send writes through a primary?</p>
+
+<p><strong>Q:</strong> What problems are they likely to have because of lack of primary?</p>
+
+<ul>
+<li>Why weren't these problems show-stoppers?</li>
+</ul>
+
+<h4>What happens after a tractserver fails?</h4>
+
+<ul>
+<li>Metadata server stops getting heartbeat RPCs</li>
+<li>Picks random replacement for each TLT entry failed server was in</li>
+<li>New TLT gets a new version number</li>
+<li>Replacement servers fetch copies</li>
+</ul>
+
+<p>Example of the tracts each server holds:</p>
+
+<pre><code>  S1: 0 4 8 ...
   S2: 0 1 ...
   S3: 4 3 ...
-  S4: 8 2 ...</p>
+  S4: 8 2 ...
+</code></pre>
 
-<p>Q: why not just pick one replacement server?</p>
+<p><strong>Q:</strong> Why not just pick one replacement server?</p>
 
-<p>Q: how long will it take to copy all the tracts?</p>
+<p><strong>Q:</strong> How long will it take to copy all the tracts?</p>
 
-<p>Q: if a tractserver's net breaks and is then repaired, might srvr serve old data?</p>
+<p><strong>Q:</strong> If a tractserver's net breaks and is then repaired, might srvr serve old data?</p>
 
-<p>Q: if a server crashes and reboots with disk intact, can contents be used?
-   e.g. if it only missed a few writes?
-   3.2.1's "partial failure recovery"
-   but won't it have already been replaced?
-   how to know what writes it missed?</p>
-
-<p>Q: when is it better to use 3.2.1's partial failure recovery?</p>
+<p><strong>Q:</strong> If a server crashes and reboots with disk intact, can contents be used?</p>
 
 <ul>
-<li>What happens when the metadata server crashes?</li>
+<li>e.g. if it only missed a few writes?</li>
+<li>3.2.1's "partial failure recovery"</li>
+<li>but won't it have already been replaced?</li>
+<li>how to know what writes it missed?</li>
 </ul>
 
-<p>Q: while metadata server is down, can the system proceed?</p>
+<p><strong>Q:</strong> When is it better to use 3.2.1's partial failure recovery?</p>
 
-<p>Q: is there a backup metadata server?</p>
+<h4>What happens when the metadata server crashes?</h4>
 
-<p>Q: how does rebooted metadata server get a copy of the TLT?</p>
+<p><strong>Q:</strong> While metadata server is down, can the system proceed?</p>
 
-<p>Q: does their scheme seem correct?
-   how does the metadata server know it has heard from all tractservers?
-   how does it know all tractservers were up to date?</p>
+<p><strong>Q:</strong> Is there a backup metadata server?</p>
+
+<p><strong>Q:</strong> How does rebooted metadata server get a copy of the TLT?</p>
+
+<p><strong>Q:</strong> Does their scheme seem correct?</p>
 
 <ul>
-<li>Random issues</li>
+<li>how does the metadata server know it has heard from all tractservers?</li>
+<li>how does it know all tractservers were up to date?</li>
 </ul>
 
-<p>Q: is the metadata server likely to be a bottleneck?</p>
+<h4>Random issues</h4>
 
-<p>Q: why do they need the scrubber application mentioned in 2.3?
-   why don't they delete the tracts when the blob is deleted?
-   can a blob be written after it is deleted?</p>
+<p><strong>Q:</strong> Is the metadata server likely to be a bottleneck?</p>
+
+<p><strong>Q:</strong> Why do they need the scrubber application mentioned in 2.3?</p>
 
 <ul>
-<li>Performance</li>
+<li>why don't they delete the tracts when the blob is deleted?</li>
+<li>can a blob be written after it is deleted?</li>
 </ul>
 
-<p>Q: how do we know we're seeing "good" performance?
-   what's the best you can expect?</p>
+<h4>Performance</h4>
 
-<p>Q: limiting resource for 2 GB / second single-client?</p>
+<p><strong>Q:</strong> How do we know we're seeing "good" performance?</p>
 
-<p>Q: Figure 4a: why starts low? why goes up? why levels off?
-   why does it level off at that particular performance?</p>
+<ul>
+<li>what's the best you can expect?</li>
+</ul>
 
-<p>Q: Figure 4b shows random r/w as fast as sequential (Figure 4a).
-   is this what you'd expect?</p>
+<p><strong>Q:</strong> Limiting resource for 2 GB / second single-client?</p>
 
-<p>Q: why are writes slower than reads with replication in Figure 4c?</p>
+<p><strong>Q:</strong> Figure 4a: Why starts low? Why goes up? Why levels off?</p>
 
-<p>Q: where does the 92 GB in 6.2 seconds come from?
-   Table 1, 4th column
-   that's 15 GB / second, both read and written
-   1000 disks, triple replicated, 128 servers?
-   what's the limiting resource? disk? cpu? net?</p>
+<ul>
+<li>why does it level off at that particular performance?</li>
+</ul>
 
-<p>How big is each sort bucket?
-  i.e. is the sort of each bucket in-memory?
-  1400 GB total
-  128 compute servers
-  between 12 and 96 GB of RAM each
-  hmm, say 50 on average, so total RAM may be 6400 GB
-  thus sort of each bucket is in memory, does not write passes to FDS
-  thus total time is just four transfers of 1400 GB
-    client limit: 128 * 2 GB/s = 256 GB / sec
-    disk limit: 1000 * 50 MB/s = 50 GB / sec
-  thus bottleneck is likely to be disk throughput</p>
+<p><strong>Q:</strong> Figure 4b shows random r/w as fast as sequential (Figure 4a).</p>
+
+<ul>
+<li>is this what you'd expect?</li>
+</ul>
+
+<p><strong>Q:</strong> Why are writes slower than reads with replication in Figure 4c?</p>
+
+<p><strong>Q:</strong> Where does the 92 GB in 6.2 seconds come from?</p>
+
+<ul>
+<li>Table 1, 4th column</li>
+<li>that's 15 GB / second, both read and written</li>
+<li>1000 disks, triple replicated, 128 servers?</li>
+<li>what's the limiting resource? disk? cpu? net?</li>
+</ul>
+
+<p>How big is each sort bucket?</p>
+
+<ul>
+<li>i.e. is the sort of each bucket in-memory?</li>
+<li>1400 GB total</li>
+<li>128 compute servers</li>
+<li>between 12 and 96 GB of RAM each</li>
+<li>hmm, say 50 on average, so total RAM may be 6400 GB</li>
+<li>thus sort of each bucket is in memory, does not write passes to FDS</li>
+<li>thus total time is just four transfers of 1400 GB
+<ul>
+<li>client limit: <code>128 * 2 GB/s = 256 GB / sec</code></li>
+<li>disk limit: <code>1000 * 50 MB/s = 50 GB / sec</code></li>
+</ul></li>
+<li>thus bottleneck is likely to be disk throughput</li>
+</ul>
