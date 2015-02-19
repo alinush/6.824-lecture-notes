@@ -17,7 +17,7 @@ Starting a new group of lectures on stronger fault tolerance
 
 Paxos
 -----
-From [Paxos Made Simple](paxos.pdf), by Leslie Lamport, 2001
+From [Paxos Made Simple](papers/paxos-simple.pdf), by Leslie Lamport, 2001
 
 Recall: RSM
 
