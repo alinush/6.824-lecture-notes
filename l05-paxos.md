@@ -17,7 +17,10 @@ Starting a new group of lectures on stronger fault tolerance
 
 Paxos
 -----
-From [Paxos Made Simple](papers/paxos-simple.pdf), by Leslie Lamport, 2001
+Links:
+ - [Paxos Made Simple](papers/paxos-simple.pdf), by Leslie Lamport, 2001
+ - [Simple explanations from Quora](https://www.quora.com/Distributed-Systems/What-is-a-simple-explanation-of-the-Paxos-algorithm)
+ - [Neat Algorithms - Paxos](http://harry.me/blog/2014/12/27/neat-algorithms-paxos/)
 
 Recall: RSM
 
