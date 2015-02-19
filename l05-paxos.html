@@ -138,20 +138,19 @@ assumptions: asynchronous, non-Byzantine</li>
 <ul>
 <li><code>Put</code>, <code>Get</code> (and more later)</li>
 </ul></li>
-<li>numbered log entries -- instances -- seq
-<ul>
-<li><strong>TODO:</strong> Is this trying to say log entries are numbered sequentially?</li>
-</ul></li>
+<li>log entries (instances) are numbered sequentially</li>
 <li>Paxos ensures agreement on content of each log entry</li>
-<li><strong>TODO</strong> Ask question about concurrency here? Can one log entry be agreed on at the same time with another? What if they depend on one another like <code>Put(k1, a)</code> and <code>Append(k1, b)</code>?
-<ul>
-<li><strong>A:</strong> Yes! They can! See below!</li>
-</ul></li>
 <li>separate Paxos agreement for each of these log entries
 <ul>
 <li>separate <em>instance</em> of Paxos algorithm is run for log entry #<code>i</code></li>
+<li><strong>Q:</strong> Can one log entry be agreed on at the same time with another? What if they depend on one another like <code>Put(k1, a)</code> and <code>Append(k1, b)</code>?</li>
+<li><strong>A:</strong> Yes! They can be agreed upon on the same time.</li>
+<li><strong>A:</strong> you can have agreed on log entry #<code>i</code> before agreeing on log entry #<code>i+1</code>
+<ul>
+<li>This means the reply associated with the <code>Get</code> or <code>Put</code> request in log entry <code>i+1</code> will
+have to wait for the other log entries to be set (interesting)</li>
 </ul></li>
-<li><strong>Note:</strong> you can have agreed on log entry #<code>i</code> before agreeing on log entry #<code>i+1</code></li>
+</ul></li>
 <li>servers can throw away log entries that all other servers have agreed on (and responded to?)
 <ul>
 <li>but if a server crashes, the other servers will know to keep their log entries around for when it comes back</li>
@@ -497,8 +496,7 @@ happen? What actually happens, and which value is ultimately chosen?</p>
 
 <p><strong>Example 2</strong> (concurrent proposers):</p>
 
-<pre><code>    A1 starts proposing n=10
-        TODO: is this propose or prepare? p1 means prepare(n=1)
+<pre><code>    A1 starts proposing n=10 by sending prepare(n=10) 
     A1 sends out just one accept v=10
     A3 starts proposing n=11
       but A1 does not receive its proposal
@@ -516,7 +514,7 @@ happen? What actually happens, and which value is ultimately chosen?</p>
 <ul>
 <li>what will <code>A2</code> do if it gets <code>a10v10</code> accept msg from <code>A1</code>?
 <ul>
-<li><strong>TODO:</strong> Is this accept_ok the propose or prepare_ok the prepare
+<li><strong>TODO:</strong> Is this <code>accept\_ok</code> the propose or <code>prepare\_ok</code> the prepare?
 <ul>
 <li><code>a10v10</code> means <code>accept(n=10,v=10)</code> which happens after <code>prepare-&gt;</code> and <code>&lt;-prepare_ok</code></li>
 </ul></li>

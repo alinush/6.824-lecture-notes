@@ -99,14 +99,15 @@ The **basic idea**:
  - clients can send RPCs to any replica (not just primary)
  - server appends each client op to a replicated *log* of operations
    + `Put`, `Get` (and more later)
- - numbered log entries -- instances -- seq
-   + **TODO:** Is this trying to say log entries are numbered sequentially?
+ - log entries (instances) are numbered sequentially
  - Paxos ensures agreement on content of each log entry
- - **TODO** Ask question about concurrency here? Can one log entry be agreed on at the same time with another? What if they depend on one another like `Put(k1, a)` and `Append(k1, b)`?
-   + **A:** Yes! They can! See below!
  - separate Paxos agreement for each of these log entries
    + separate _instance_ of Paxos algorithm is run for log entry #`i`
- - **Note:** you can have agreed on log entry #`i` before agreeing on log entry #`i+1`
+   + **Q:** Can one log entry be agreed on at the same time with another? What if they depend on one another like `Put(k1, a)` and `Append(k1, b)`?
+   + **A:** Yes! They can be agreed upon on the same time.
+   + **A:** you can have agreed on log entry #`i` before agreeing on log entry #`i+1`
+     - This means the reply associated with the `Get` or `Put` request in log entry `i+1` will
+       have to wait for the other log entries to be set (interesting)
  - servers can throw away log entries that all other servers have agreed on (and responded to?)
    + but if a server crashes, the other servers will know to keep their log entries around for when it comes back
  - protocol does **not** require designated proposers or leaders for correctness
@@ -354,8 +355,7 @@ happen? What actually happens, and which value is ultimately chosen?
 
 **Example 2** (concurrent proposers):
 
-        A1 starts proposing n=10
-            TODO: is this propose or prepare? p1 means prepare(n=1)
+        A1 starts proposing n=10 by sending prepare(n=10) 
         A1 sends out just one accept v=10
         A3 starts proposing n=11
           but A1 does not receive its proposal
@@ -370,7 +370,7 @@ happen? What actually happens, and which value is ultimately chosen?
 What will happen?
 
  - what will `A2` do if it gets `a10v10` accept msg from `A1`?
-   + **TODO:** Is this accept\_ok the propose or prepare\_ok the prepare
+   + **TODO:** Is this `accept\_ok` the propose or `prepare\_ok` the prepare?
      - `a10v10` means `accept(n=10,v=10)` which happens after `prepare->` and `<-prepare_ok`
  - what will `A1` do if it gets `a11v11` accept msg from `A3`?
 
