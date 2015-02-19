@@ -1,0 +1,627 @@
+<h1>6.824 2015 Lecture 5: Paxos</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the 6.824 
+<a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from Spring 2015.</p>
+
+<h2>Intro</h2>
+
+<p>Starting a new group of lectures on stronger fault tolerance</p>
+
+<ul>
+<li>Today:
+<ul>
+<li>cleaner approach to replication: RSM via Paxos</li>
+<li>Lab 3</li>
+</ul></li>
+<li>Subsequent lectures:
+<ul>
+<li>How to use Paxos to build systems (Harp, EPaxos, Spanner)</li>
+</ul></li>
+</ul>
+
+<h2>Paxos</h2>
+
+<p>From <a href="paxos.pdf">Paxos Made Simple</a>, by Leslie Lamport, 2001</p>
+
+<p>Recall: RSM</p>
+
+<ul>
+<li>maintain replicas by executing operations in the same order</li>
+<li>requires all replicas to agree on the (set and) order of operations</li>
+</ul>
+
+<p>Lab 2 critique</p>
+
+<ul>
+<li>primary/backup with viewserver</li>
+<li><strong>pro:</strong>
+<ul>
+<li>conceptually simple</li>
+<li>just two msgs per op (request, reply)</li>
+<li>primary can do computation, send result to bkup</li>
+<li>only two k/v servers needed to tolerate one failure</li>
+</ul></li>
+<li><strong>con:</strong>
+<ul>
+<li>viewserver is single point of failure</li>
+<li>order can be messy, e.g. new view, data to backup, ack, &amp;c</li>
+<li>tension if backup is slow / temporarily unavail
+<ol>
+<li>primary can wait for backup -- slow</li>
+<li>viewserver can declare backup dead -- expensive, hurts fault tolerance</li>
+</ol></li>
+</ul></li>
+</ul>
+
+<p>We would like a general-purpose ordering scheme with:</p>
+
+<ul>
+<li>no single point of failure</li>
+<li>graceful handling of slow / intermittent replicas</li>
+</ul>
+
+<p><strong>Paxos</strong> will be a key building block for this.</p>
+
+<ul>
+<li>some number of nodes participate in <em>an instance of Paxos</em>
+<ul>
+<li><strong>Q:</strong> What is this <em>instance</em>?</li>
+<li><strong>A:</strong> <em>"Each new command requires a separate Paxos agreement, which the
+paper calls an instance. So the database replicas might agree that the
+first command to execute is 'command one', and they use Paxos to agree
+on that. Then that instance of Paxos is done. A while later another
+client sends 'command two'; the replicas start up an entirely separate
+instance of Paxos to agree on this second client command.'</em> --RTM</li>
+</ul></li>
+<li>each node knows the address of every other node for that instance</li>
+<li>each instance of Paxos can reach consensus on at most one value
+typically, a system uses many instances of Paxos
+each instance usually decides one operation
+assumptions: asynchronous, non-Byzantine</li>
+</ul>
+
+<h3>What does Paxos provide?</h3>
+
+<ul>
+<li><strong>"black-box"</strong> interface to a Paxos instance, on each node:
+<ul>
+<li>Propose a value (e.g., operation)</li>
+<li>Check what value has been decided, if any</li>
+<li>[ Lab 3A: <code>src/paxos/paxos.go</code>: Start, Status ]</li>
+</ul></li>
+<li><strong>Correctness:</strong>
+<ul>
+<li>if agreement reached, all agreeing nodes see same value</li>
+</ul></li>
+<li><strong>Fault-tolerance:</strong>
+<ul>
+<li>can tolerate non-reachability of a minority of nodes
+(correctness implies they won't agree at all)</li>
+</ul></li>
+<li><strong>Liveness:</strong>
+<ul>
+<li>a majority must be alive and able to communicate reliably
+(minorities are not live)</li>
+</ul></li>
+</ul>
+
+<h3>How to build a system using Paxos?</h3>
+
+<ol>
+<li>Primary/Backup like Lab 2, but use Paxos to replicate the ViewServer
+<ul>
+<li>[ next Tuesday's lecture will be about such a system ]</li>
+</ul></li>
+<li>Lab 3: no ViewServer, all replicas use Paxos instead of primary/backup</li>
+</ol>
+
+<p>Replicating either the ViewServer or K/V server with Paxos is similar.</p>
+
+<p>Will look at a sketch of how to do a Paxos-based K/V server.</p>
+
+<p>The <strong>basic idea</strong>:</p>
+
+<ul>
+<li>[ Diagram: clients, replicas, log in each replica, K/V layer, Paxos layer]</li>
+<li>no viewserver</li>
+<li>three replicas</li>
+<li>clients can send RPCs to any replica (not just primary)</li>
+<li>server appends each client op to a replicated <em>log</em> of operations
+<ul>
+<li><code>Put</code>, <code>Get</code> (and more later)</li>
+</ul></li>
+<li>numbered log entries -- instances -- seq
+<ul>
+<li><strong>TODO:</strong> Is this trying to say log entries are numbered sequentially?</li>
+</ul></li>
+<li>Paxos agreement on content of each log entry</li>
+<li><strong>TODO</strong> Ask question about concurrency here? Can one log entry be agreed on at the same time with another? What if they depend on one another like <code>Put(k1, a)</code> and <code>Append(k1, b)</code>?</li>
+</ul>
+
+<p>Example:</p>
+
+<ul>
+<li>client sends <code>Put(a, b)</code> to <code>S1</code></li>
+<li><code>S1</code> picks a log entry 3</li>
+<li><code>S1</code> uses Paxos to get all servers to agree that entry 3 holds <code>Put(a,b)</code></li>
+</ul>
+
+<p>Example:</p>
+
+<ul>
+<li>client sends <code>Get(a)</code> to <code>S2</code></li>
+<li><code>S2</code> picks log entry 4</li>
+<li><code>S2</code> uses Paxos to get all servers to agree that entry 4 holds <code>Get(a)</code></li>
+<li><code>S2</code> scans log up to entry 4 to find latest <code>Put(a, ...)</code>
+<ul>
+<li><strong>TODO:</strong> <code>O(n)</code> worst case for doing a <code>Get</code> because you can have <code>Put</code> followed by a gazillion <code>PutAppend</code>'s (or you can have just one <code>Put</code> stored way back?).
+<ul>
+<li>Can the replicas index their log? I suppose. If they all store it fully.</li>
+</ul></li>
+</ul></li>
+<li><code>S2</code> replies with that value
+<ul>
+<li><code>S2</code> can cache content of DB up through last log scan</li>
+</ul></li>
+</ul>
+
+<h4>Q: Why a log?</h4>
+
+<ul>
+<li>Why not require all replicas to agree on each op in lock-step?</li>
+<li>Allows one replica to fall behind, then catch up
+<ul>
+<li>e.g. if it is slow</li>
+<li>other replicas do not have to wait</li>
+</ul></li>
+<li>Allows one replica to crash and catch up
+<ul>
+<li>if it keeps state on disk</li>
+<li>can replay missed operations</li>
+</ul></li>
+<li>Allows pipelining/overlap of agreement
+<ul>
+<li>agreement turns out to require multiple message rounds</li>
+</ul></li>
+</ul>
+
+<h4>Q: What about agreement -- we need all replicas to have same op in each log slot</h4>
+
+<ul>
+<li>Provided by Paxos, as we will see next</li>
+</ul>
+
+<p><em>Agreement is hard (1):</em></p>
+
+<ul>
+<li>May be multiple proposals for the op in a particular log slot</li>
+<li><code>Sx</code> (server <code>x</code>) may initially hear of one, <code>Sy</code> may hear of another</li>
+<li>Clearly one must later change its mind</li>
+<li>Thus: multiple rounds, tentative initially</li>
+<li>How do we know when agreement is permanent -- no longer tentative?</li>
+</ul>
+
+<p><em>Agreement is hard (2):</em></p>
+
+<ul>
+<li><strong>TODO:</strong> If <code>S1</code> and <code>S2</code> agree, and <code>S3</code> and <code>S4</code> don't respond, are we done?</li>
+<li>Agreement has to be able to complete even w/ failed servers</li>
+<li>We can't distinguish failed server from network partition</li>
+<li>So maybe <code>S3</code>/<code>S4</code> are partitioned have "agreed" on a different operation!</li>
+</ul>
+
+<p>Two <strong>main ideas</strong> in Paxos:</p>
+
+<ol>
+<li>Many rounds may be required but they will converge on one value</li>
+<li>A majority is required for agreement -- prevent "split brain"
+<ul>
+<li><em>Key point</em>: any two majorities overlap</li>
+<li>so any later majority will share at least one server w/ any earlier majority</li>
+<li>so any later majority can find out what earlier majority decided
+<ul>
+<li><strong>TODO:</strong> How?</li>
+</ul></li>
+</ul></li>
+</ol>
+
+<p>Lab 3B K/V server creates a separate Paxos instance for each client <code>Put</code>, <code>Get</code></p>
+
+<ul>
+<li>rest of lecture focuses on agreement for a specific instance</li>
+</ul>
+
+<h2>Paxos sketch</h2>
+
+<ul>
+<li>each node consists of three logical entities:
+<ul>
+<li><strong>proposer</strong></li>
+<li><strong>acceptor</strong></li>
+<li><strong>learner</strong></li>
+</ul></li>
+<li>each proposer wants to get agreement on its value
+<ul>
+<li>could try to use a "designated leader" to avoid dueling proposers</li>
+<li>OK to have multiple proposers, so leader election can be approximate</li>
+</ul></li>
+<li>proposer contacts acceptors, tries to assemble a majority
+<ul>
+<li>if a majority respond, we're done</li>
+</ul></li>
+<li>in our K/V server example, roughly:
+<ul>
+<li>proposer gets RPC from client, proposes operation</li>
+<li>acceptors are internal to Paxos, help decide consensus</li>
+<li>learner figures out what operation was decided to run, responds to client</li>
+</ul></li>
+</ul>
+
+<p><em>Broken strawman:</em> can we do Paxos in a single round?</p>
+
+<ul>
+<li>acceptor "accepts" the first value that it hears from proposer</li>
+<li>when is consensus reached?
+<ul>
+<li>can we take the value with the most votes?</li>
+<li>no, need a majority of accepts for the same value: <code>floor(n/2)+1</code></li>
+<li>otherwise, consensus on 2 different values (lossy/partitioned network)</li>
+</ul></li>
+<li><em>Problem:</em>
+<ul>
+<li>suppose we have 3 servers: <code>S1</code>, <code>S2</code>, <code>S3</code></li>
+<li>what if each server proposes + accepts its own value?
+<ul>
+<li>no majority, stuck</li>
+<li>but maybe we can detect this situation and recover?</li>
+</ul></li>
+<li><em>Worse:</em> <code>S3</code> crashes <code>-&gt;</code> we may have reached majority, but we'll never know</li>
+</ul></li>
+<li>need a way for acceptors to change their mind, if no consensus reached yet</li>
+</ul>
+
+<h3>Basic Paxos exchange</h3>
+
+<pre><code>     proposer          acceptors
+
+           prepare(n) -&gt;
+        &lt;- prepare_ok(n, n_a, v_a)
+
+           accept(n, v') -&gt;
+        &lt;- accept_ok(n)
+
+           decided(v') -&gt;
+</code></pre>
+
+<h3>Why <code>n</code>?</h3>
+
+<ul>
+<li>to distinguish among multiple rounds, e.g. proposer crashes, simul props</li>
+<li>want later rounds to supersede earlier ones</li>
+<li>numbers allow us to compare early/late</li>
+<li><code>n</code> values must be unique and roughly follow time</li>
+<li><code>n = &lt;time, server ID&gt;</code>
+<ul>
+<li>e.g., ID can be server's IP address</li>
+</ul></li>
+<li><em>"round"</em> is the same as <em>"proposal"</em> but completely different from "instance"
+<ul>
+<li>round/proposal numbers are <em>WITHIN</em> a particular instance</li>
+</ul></li>
+</ul>
+
+<p><strong>Definition:</strong> server S <em>accepts</em> <code>n/v</code></p>
+
+<ul>
+<li>it responded <code>accept_ok</code> to <code>accept(n, v)</code></li>
+</ul>
+
+<p><strong>Definition:</strong> <code>n/v</code> is <em>chosen</em>
+ - a majority of servers accepted <code>n/v</code></p>
+
+<p>The <strong>crucial property:</strong></p>
+
+<ul>
+<li>if a value was chosen, any subsequent choice must be the same value
+<ul>
+<li>i.e. protocol must not change its mind</li>
+<li>maybe a different proposer &amp;c, but same value!</li>
+<li>this allows us to freely start new rounds after crashes &amp;c</li>
+</ul></li>
+<li>tricky b/c <em>"chosen"</em> is system-wide property
+<ul>
+<li>e.g. majority accepts, then proposer crashes
+<ul>
+<li><strong>TODO:</strong> What happens here?</li>
+</ul></li>
+<li><em>no node can tell locally that agreement was reached</em></li>
+</ul></li>
+</ul>
+
+<p>So:</p>
+
+<ul>
+<li>proposer doesn't send out value with <code>prepare</code>
+<ul>
+<li><strong>TODO:</strong> How is any value accepted by an acceptor then?</li>
+</ul></li>
+<li>acceptors send back any value they have already accepted</li>
+<li>if there is one, proposer proposes that value
+<ul>
+<li>to avoid changing an existing choice</li>
+</ul></li>
+<li>if no value already accepted,
+<ul>
+<li>proposer can propose any value (e.g. a client request)</li>
+</ul></li>
+<li>proposer must get <code>prepare_ok</code> from majority
+<ul>
+<li>to guarantee intersection with any previous majority,</li>
+<li>to guarantee proposer hears of any previously chosen value</li>
+</ul></li>
+</ul>
+
+<h3>Now the protocol -- see the handout</h3>
+
+<pre><code>    proposer(v):
+      choose n, unique and higher than any n seen so far
+      send prepare(n) to all servers including self
+      if prepare_ok(n, n_a, v_a) from majority:
+        v' = v_a with highest n_a; choose own v otherwise
+        send accept(n, v') to all
+        if accept_ok(n) from majority:
+          send decided(v') to all
+
+    acceptor state:
+      must persist across reboots
+      n_p (highest prepare seen)
+      n_a, v_a (highest accept seen)
+
+    acceptor's prepare(n) handler:
+      if n &gt; n_p
+        n_p = n
+        reply prepare_ok(n, n_a, v_a)
+      else
+        reply prepare_reject
+
+    acceptor's accept(n, v) handler:
+      if n &gt;= n_p
+        n_p = n
+        n_a = n
+        v_a = v
+        reply accept_ok(n)
+      else
+        reply accept_reject
+</code></pre>
+
+<p><strong>Example 1</strong> (normal operation):</p>
+
+<pre><code>    `S1`, `S2`, `S3` but `S3` is dead or slow
+
+    `S1`: -&gt; starts proposal w/ n=1 v=A 
+    `S1`: &lt;- p1   &lt;- a1vA    &lt;- dA
+    `S2`: &lt;- p1   &lt;- a1vA    &lt;- dA
+    `S3`: dead...
+
+    "p1" means Sx receives prepare(n=1) 
+    "a1vA" means Sx receives accept(n=1, v=A)
+    "dA" means Sx receives decided(v=A)
+</code></pre>
+
+<p>These diagrams are not specific about who the proposer is</p>
+
+<ul>
+<li>it doesn't really matter</li>
+<li>the proposers are logically separate from the acceptors</li>
+<li>we only care about what acceptors saw and replied</li>
+</ul>
+
+<p>Note Paxos only requires a majority of the servers</p>
+
+<ul>
+<li>so we can continue even though <code>S3</code> was down</li>
+<li>proposer must not wait forever for any acceptor's response</li>
+</ul>
+
+<p>What would happen if network partition?</p>
+
+<ul>
+<li>I.e. <code>S3</code> was alive and had a proposed value B</li>
+<li><code>S3</code>'s prepare would not assemble a majority</li>
+</ul>
+
+<p><em>The homework question:</em> How does Paxos ensure that the following sequence of events can't
+happen? What actually happens, and which value is ultimately chosen?</p>
+
+<pre><code>  proposer 1 crashes after sending two accepts
+  proposer 2 has a different value in mind
+  A: p1 a1foo
+  B: p1       p2 a2bar
+  C: p1 a1foo p2 a2bar
+  C's prepare_ok to B really included "foo"
+    thus a2foo, and so no problem
+</code></pre>
+
+<p><strong>The point:</strong></p>
+
+<ul>
+<li>if the system has already reached agreement, majority will know value</li>
+<li>any new majority of prepares will intersect that majority</li>
+<li>so subsequent proposer will learn of already-agreed-on value</li>
+<li>and send it in accept msgs</li>
+</ul>
+
+<p><strong>Example 2</strong> (concurrent proposers):</p>
+
+<pre><code>    A1 starts proposing n=10
+        TODO: is this propose or prepare? p1 means prepare(n=1)
+    A1 sends out just one accept v=10
+    A3 starts proposing n=11
+      but A1 does not receive its proposal
+      A3 only has to wait for a majority of proposal responses
+    A1: p10 a10v10 
+    A2: p10        p11
+    A3: p10        p11  a11v11
+    A1 and A3 have accepted different values!
+</code></pre>
+
+<p>What will happen?</p>
+
+<ul>
+<li>what will <code>A2</code> do if it gets <code>a10v10</code> accept msg from <code>A1</code>?
+<ul>
+<li><strong>TODO:</strong> Is this accept_ok the propose or prepare_ok the prepare
+<ul>
+<li><code>a10v10</code> means <code>accept(n=10,v=10)</code> which happens after <code>prepare-&gt;</code> and <code>&lt;-prepare_ok</code></li>
+</ul></li>
+</ul></li>
+<li>what will <code>A1</code> do if it gets <code>a11v11</code> accept msg from <code>A3</code>?</li>
+</ul>
+
+<p>What if A3 were to crash at this point (and not restart)?</p>
+
+<p>How about this:</p>
+
+<pre><code>A1: p10  a10v10               p12
+A2: p10          p11  a11v11  
+A3: p10          p11          p12   a12v10
+</code></pre>
+
+<p>Has the system agreed to a value at this point?</p>
+
+<p>What's the commit point?</p>
+
+<ul>
+<li>i.e. exactly when has agreement been reached?</li>
+<li>i.e. at what point would changing the value be a disaster?</li>
+<li>after a majority has the same <code>v_a</code>? no -- why not? above counterexample</li>
+<li>after a majority has the same <code>v_a/n_a</code>? yes -- why sufficient? sketch:
+<ul>
+<li>suppose majority has same <code>v_a/n_a</code></li>
+<li>acceptors will reject <code>accept()</code> with lower <code>n</code></li>
+<li>for any higher <code>n</code>: prepare's must have seen our majority <code>v_a/n_a</code> (overlap)</li>
+<li>what if overlap servers saw <code>prepare(n)</code> before <code>accept(v_a, n_a)</code>?
+<ul>
+<li>would reject <code>v_a/n_a</code></li>
+<li>thus wouldn't have a majority yet</li>
+<li>proposer might be free to choose <code>v != v_a</code></li>
+</ul></li>
+</ul></li>
+</ul>
+
+<p>Why does the proposer need to pick <code>v_a</code> with highest <code>n_a</code>?</p>
+
+<pre><code>    A1: p10  a10vA               p12
+    A2: p10          p11  a11vB  
+    A3: p10          p11  a11vB  p12   a12v??
+    n=11 already agreed on vB
+    n=12 sees both vA and vB, but must choose vB
+</code></pre>
+
+<p>Why: Two cases:</p>
+
+<ol>
+<li>There was a majority before <code>n=11</code>
+<ul>
+<li><code>n=11</code>'s prepares would have seen value and re-used it</li>
+<li>so it's safe for <code>n=12</code> to re-use <code>n=11</code>'s value</li>
+</ul></li>
+<li>There was not a majority before <code>n=11</code>
+<ul>
+<li><code>n=11</code> might have obtained a majority</li>
+<li>so it's required for <code>n=12</code>to re-use <code>n=11</code>'s value</li>
+</ul></li>
+</ol>
+
+<p>Why does prepare handler check that <code>n &gt; n_p</code>?</p>
+
+<ul>
+<li>it's taking <code>max(concurrent n's)</code>, for accept handler</li>
+<li>responding to all <code>prepare()</code> with <code>prepare_ok()</code> would be also fine,
+<ul>
+<li>but proposers with <code>n &lt; n_p</code> would be ignored by <code>accept()</code> anyway</li>
+</ul></li>
+</ul>
+
+<p>Why does accept handler check <code>n &gt;= n_p</code>?</p>
+
+<ul>
+<li>required to ensure agreement</li>
+<li>there's a unique highest <code>n</code> active</li>
+<li>everyone favors the highest <code>n</code></li>
+<li>without <code>n &gt;= n_p</code> check, you could get this bad scenario:</li>
+</ul>
+
+<p>Scenario:</p>
+
+<pre><code>    A1: p1 p2 a1vA
+    A2: p1 p2 a1vA a2vB
+    A3: p1 p2      a2vB
+</code></pre>
+
+<p>Why does accept handler update <code>n_p = n</code>?</p>
+
+<ul>
+<li>required to prevent earlier <code>n</code>'s from being accepted</li>
+<li>node can get <code>accept(n,v)</code> even though it never saw <code>prepare(n)</code></li>
+<li>without <code>n_p = n</code>, can get this bad scenario:</li>
+</ul>
+
+<p>Scenario:</p>
+
+<pre><code>    A1: p1    a2vB a1vA p3 a3vA
+    A2: p1 p2           p3 a3vA
+    A3:    p2 a2vB
+</code></pre>
+
+<p>What if new proposer chooses <code>n &lt; old proposer</code>?</p>
+
+<ul>
+<li>i.e. if clocks are not synced</li>
+<li>cannot make progress, though no correctness problem</li>
+</ul>
+
+<p>What if an acceptor crashes after receiving accept?</p>
+
+<pre><code>A1: p1  a1v1
+A2: p1  a1v1 reboot  p2  a2v?
+A3: p1               p2  a2v?
+
+A2 must remember v_a/n_a across reboot! on disk
+  might be only intersection with new proposer's majority
+  and thus only evidence that already agreed on v1
+</code></pre>
+
+<p>What if an acceptor reboots after sending <code>prepare_ok</code>?</p>
+
+<ul>
+<li>does it have to remember n_p on disk?</li>
+<li>if n_p not remembered, this could happen:</li>
+</ul>
+
+<p>Example:</p>
+
+<pre><code>  `S1`: p10            a10v10
+  `S2`: p10 p11 reboot a10v10 a11v11
+  `S3`:     p11               a11v11
+</code></pre>
+
+<ul>
+<li>11's proposer did not see value 10, so 11 proposed its own value</li>
+<li>but just before that, 10 had been chosen!</li>
+<li>b/c <code>S2</code> did not remember to ignore <code>a10v10</code></li>
+</ul>
+
+<p>Can Paxos get stuck?</p>
+
+<ul>
+<li>Yes, if there is not a majority that can communicate</li>
+<li>How about if a majority is available?
+<ul>
+<li>Possible to livelock: dueling proposers, keep <code>prepare</code>'ing higher <code>n</code>'s
+<ul>
+<li>One reason to try electing a leader: reduce chance of dueling proposers</li>
+</ul></li>
+<li>With single proposer and reachable majority, should reach consensus</li>
+</ul></li>
+</ul>
