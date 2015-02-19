@@ -301,12 +301,14 @@ Note Paxos only requires a majority of the servers
  - so we can continue even though `S3` was down
  - proposer must not wait forever for any acceptor's response
 
-What would happen if network partition?
+#### What would happen if network partition?
 
  - I.e. `S3` was alive and had a proposed value B
  - `S3`'s prepare would not assemble a majority
 
-_The homework question:_ How does Paxos ensure that the following sequence of events can't
+#### The homework question
+
+How does Paxos ensure that the following sequence of events can't
 happen? What actually happens, and which value is ultimately chosen?
 
       proposer 1 crashes after sending two accepts
@@ -354,7 +356,7 @@ How about this:
 
 Has the system agreed to a value at this point?
 
-What's the commit point?
+#### What's the commit point?
 
  - i.e. exactly when has agreement been reached?
  - i.e. at what point would changing the value be a disaster?
@@ -368,7 +370,7 @@ What's the commit point?
      - thus wouldn't have a majority yet
      - proposer might be free to choose `v != v_a`
 
-Why does the proposer need to pick `v_a` with highest `n_a`?
+#### Why does the proposer need to pick `v_a` with highest `n_a`?
 
         A1: p10  a10vA               p12
         A2: p10          p11  a11vB  
@@ -376,7 +378,7 @@ Why does the proposer need to pick `v_a` with highest `n_a`?
         n=11 already agreed on vB
         n=12 sees both vA and vB, but must choose vB
 
-Why: Two cases:
+Two cases:
 
   1. There was a majority before `n=11`
      - `n=11`'s prepares would have seen value and re-used it
@@ -385,13 +387,13 @@ Why: Two cases:
      - `n=11` might have obtained a majority
      - so it's required for `n=12 `to re-use `n=11`'s value
 
-Why does prepare handler check that `n > n_p`?
+#### Why does prepare handler check that `n > n_p`?
 
  - it's taking `max(concurrent n's)`, for accept handler
  - responding to all `prepare()` with `prepare_ok()` would be also fine,
    + but proposers with `n < n_p` would be ignored by `accept()` anyway
 
-Why does accept handler check `n >= n_p`?
+#### Why does accept handler check `n >= n_p`?
 
  - required to ensure agreement
  - there's a unique highest `n` active
@@ -404,7 +406,7 @@ Scenario:
         A2: p1 p2 a1vA a2vB
         A3: p1 p2      a2vB
 
-Why does accept handler update `n_p = n`?
+#### Why does accept handler update `n_p = n`?
 
  - required to prevent earlier `n`'s from being accepted
  - node can get `accept(n,v)` even though it never saw `prepare(n)`
@@ -416,12 +418,12 @@ Scenario:
         A2: p1 p2           p3 a3vA
         A3:    p2 a2vB
 
-What if new proposer chooses `n < old proposer`?
+#### What if new proposer chooses `n < old proposer`?
 
  - i.e. if clocks are not synced
  - cannot make progress, though no correctness problem
 
-What if an acceptor crashes after receiving accept?
+#### What if an acceptor crashes after receiving accept?
 
     A1: p1  a1v1
     A2: p1  a1v1 reboot  p2  a2v?
@@ -431,7 +433,7 @@ What if an acceptor crashes after receiving accept?
       might be only intersection with new proposer's majority
       and thus only evidence that already agreed on v1
 
-What if an acceptor reboots after sending `prepare_ok`?
+#### What if an acceptor reboots after sending `prepare_ok`?
 
  - does it have to remember n_p on disk?
  - if n_p not remembered, this could happen:
@@ -446,7 +448,7 @@ Example:
  - but just before that, 10 had been chosen!
  - b/c `S2` did not remember to ignore `a10v10`
 
-Can Paxos get stuck?
+#### Can Paxos get stuck?
 
  - Yes, if there is not a majority that can communicate
  - How about if a majority is available?

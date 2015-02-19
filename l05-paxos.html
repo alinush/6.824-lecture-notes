@@ -423,14 +423,16 @@ assumptions: asynchronous, non-Byzantine</li>
 <li>proposer must not wait forever for any acceptor's response</li>
 </ul>
 
-<p>What would happen if network partition?</p>
+<h4>What would happen if network partition?</h4>
 
 <ul>
 <li>I.e. <code>S3</code> was alive and had a proposed value B</li>
 <li><code>S3</code>'s prepare would not assemble a majority</li>
 </ul>
 
-<p><em>The homework question:</em> How does Paxos ensure that the following sequence of events can't
+<h4>The homework question</h4>
+
+<p>How does Paxos ensure that the following sequence of events can't
 happen? What actually happens, and which value is ultimately chosen?</p>
 
 <pre><code>  proposer 1 crashes after sending two accepts
@@ -489,7 +491,7 @@ A3: p10          p11          p12   a12v10
 
 <p>Has the system agreed to a value at this point?</p>
 
-<p>What's the commit point?</p>
+<h4>What's the commit point?</h4>
 
 <ul>
 <li>i.e. exactly when has agreement been reached?</li>
@@ -509,7 +511,7 @@ A3: p10          p11          p12   a12v10
 </ul></li>
 </ul>
 
-<p>Why does the proposer need to pick <code>v_a</code> with highest <code>n_a</code>?</p>
+<h4>Why does the proposer need to pick <code>v_a</code> with highest <code>n_a</code>?</h4>
 
 <pre><code>    A1: p10  a10vA               p12
     A2: p10          p11  a11vB  
@@ -518,7 +520,7 @@ A3: p10          p11          p12   a12v10
     n=12 sees both vA and vB, but must choose vB
 </code></pre>
 
-<p>Why: Two cases:</p>
+<p>Two cases:</p>
 
 <ol>
 <li>There was a majority before <code>n=11</code>
@@ -533,7 +535,7 @@ A3: p10          p11          p12   a12v10
 </ul></li>
 </ol>
 
-<p>Why does prepare handler check that <code>n &gt; n_p</code>?</p>
+<h4>Why does prepare handler check that <code>n &gt; n_p</code>?</h4>
 
 <ul>
 <li>it's taking <code>max(concurrent n's)</code>, for accept handler</li>
@@ -543,7 +545,7 @@ A3: p10          p11          p12   a12v10
 </ul></li>
 </ul>
 
-<p>Why does accept handler check <code>n &gt;= n_p</code>?</p>
+<h4>Why does accept handler check <code>n &gt;= n_p</code>?</h4>
 
 <ul>
 <li>required to ensure agreement</li>
@@ -559,7 +561,7 @@ A3: p10          p11          p12   a12v10
     A3: p1 p2      a2vB
 </code></pre>
 
-<p>Why does accept handler update <code>n_p = n</code>?</p>
+<h4>Why does accept handler update <code>n_p = n</code>?</h4>
 
 <ul>
 <li>required to prevent earlier <code>n</code>'s from being accepted</li>
@@ -574,14 +576,14 @@ A3: p10          p11          p12   a12v10
     A3:    p2 a2vB
 </code></pre>
 
-<p>What if new proposer chooses <code>n &lt; old proposer</code>?</p>
+<h4>What if new proposer chooses <code>n &lt; old proposer</code>?</h4>
 
 <ul>
 <li>i.e. if clocks are not synced</li>
 <li>cannot make progress, though no correctness problem</li>
 </ul>
 
-<p>What if an acceptor crashes after receiving accept?</p>
+<h4>What if an acceptor crashes after receiving accept?</h4>
 
 <pre><code>A1: p1  a1v1
 A2: p1  a1v1 reboot  p2  a2v?
@@ -592,7 +594,7 @@ A2 must remember v_a/n_a across reboot! on disk
   and thus only evidence that already agreed on v1
 </code></pre>
 
-<p>What if an acceptor reboots after sending <code>prepare_ok</code>?</p>
+<h4>What if an acceptor reboots after sending <code>prepare_ok</code>?</h4>
 
 <ul>
 <li>does it have to remember n_p on disk?</li>
@@ -612,7 +614,7 @@ A2 must remember v_a/n_a across reboot! on disk
 <li>b/c <code>S2</code> did not remember to ignore <code>a10v10</code></li>
 </ul>
 
-<p>Can Paxos get stuck?</p>
+<h4>Can Paxos get stuck?</h4>
 
 <ul>
 <li>Yes, if there is not a majority that can communicate</li>
