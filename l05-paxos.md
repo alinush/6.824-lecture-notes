@@ -18,6 +18,7 @@ Starting a new group of lectures on stronger fault tolerance
 Paxos
 -----
 Links:
+
  - [Paxos Made Simple](papers/paxos-simple.pdf), by Leslie Lamport, 2001
  - [Simple explanations from Quora](https://www.quora.com/Distributed-Systems/What-is-a-simple-explanation-of-the-Paxos-algorithm)
  - [Neat Algorithms - Paxos](http://harry.me/blog/2014/12/27/neat-algorithms-paxos/)
@@ -33,10 +34,11 @@ Lab 2 critique
  + **pro:**
    - conceptually simple
    - just two msgs per op (request, reply)
-   - primary can do computation, send result to bkup
+   - primary can do computation, send result to backup
    - only two k/v servers needed to tolerate one failure
+   - works with network partition
  + **con:**
-   - viewserver is single point of failure
+   - ViewServer is a _single point of failure_
    - order can be messy, e.g. new view, data to backup, ack, &c
    - tension if backup is slow / temporarily unavail
      1. primary can wait for backup -- slow
@@ -46,6 +48,7 @@ We would like a general-purpose ordering scheme with:
 
  + no single point of failure
  + graceful handling of slow / intermittent replicas
+ + handling of network partitions
 
 **Paxos** will be a key building block for this.
 
@@ -63,7 +66,7 @@ We would like a general-purpose ordering scheme with:
     each instance usually decides one operation
   assumptions: asynchronous, non-Byzantine
 
-### What does Paxos provide?
+### What does Paxos provide? How does it work?
 
  - **"black-box"** interface to a Paxos instance, on each node:
    + Propose a value (e.g., operation)
@@ -82,7 +85,7 @@ We would like a general-purpose ordering scheme with:
 
   1. Primary/Backup like Lab 2, but use Paxos to replicate the ViewServer
      - [ next Tuesday's lecture will be about such a system ]
-  2. Lab 3: no ViewServer, all replicas use Paxos instead of primary/backup
+  2. _Lab 3_: no ViewServer, all replicas use Paxos instead of primary/backup
 
 Replicating either the ViewServer or K/V server with Paxos is similar.
 
@@ -98,8 +101,18 @@ The **basic idea**:
    + `Put`, `Get` (and more later)
  - numbered log entries -- instances -- seq
    + **TODO:** Is this trying to say log entries are numbered sequentially?
- - Paxos agreement on content of each log entry
+ - Paxos ensures agreement on content of each log entry
  - **TODO** Ask question about concurrency here? Can one log entry be agreed on at the same time with another? What if they depend on one another like `Put(k1, a)` and `Append(k1, b)`?
+   + **A:** Yes! They can! See below!
+ - separate Paxos agreement for each of these log entries
+   + separate _instance_ of Paxos algorithm is run for log entry #`i`
+ - **Note:** you can have agreed on log entry #`i` before agreeing on log entry #`i+1`
+ - servers can throw away log entries that all other servers have agreed on (and responded to?)
+   + but if a server crashes, the other servers will know to keep their log entries around for when it comes back
+ - protocol does **not** require designated proposers or leaders for correctness
+   + these only help w/ performance
+   + low probability of proposing "livelock" that can be overcome by having proposers wait a random amount of time
+ - once a Paxos node agrees on a value it never changes it mind
 
 Example:
 
@@ -284,14 +297,22 @@ So:
 
         `S1`, `S2`, `S3` but `S3` is dead or slow
 
-        `S1`: -> starts proposal w/ n=1 v=A 
+        `S1`: -> starts proposal w/ n=1 v=A
         `S1`: <- p1   <- a1vA    <- dA
         `S2`: <- p1   <- a1vA    <- dA
         `S3`: dead...
 
-        "p1" means Sx receives prepare(n=1) 
+        "p1" means Sx receives prepare(n=1)
         "a1vA" means Sx receives accept(n=1, v=A)
         "dA" means Sx receives decided(v=A)
+
+ - S1 and S2 will reply with `prepare_ok(1, 0, null)` to the `p1` message.
+ - If `dA` is lost, one of the nodes waiting can run Paxos again and try a new `n` higher than the previous one.
+   + the `prepare_ok(2, 1, 'A')` reply will come back,
+   + then the node is forced to send `a2vA` and hopefully this time, after the node gets the `accept_ok` message, it
+     will send out `dA` messages that won't get lost again
+ - a value is said to be chosen when a majority of acceptors in the `accept` handler take the accept branch and accept the value
+   + however, not everyone will *know* this, so that's why the `decide` message is sent out
 
 These diagrams are not specific about who the proposer is
  
@@ -314,11 +335,13 @@ Note Paxos only requires a majority of the servers
 How does Paxos ensure that the following sequence of events can't
 happen? What actually happens, and which value is ultimately chosen?
 
-      proposer 1 crashes after sending two accepts
+      proposer 1 crashes after sending two accept() requests
       proposer 2 has a different value in mind
+
       A: p1 a1foo
       B: p1       p2 a2bar
       C: p1 a1foo p2 a2bar
+
       C's prepare_ok to B really included "foo"
         thus a2foo, and so no problem
 
@@ -337,9 +360,11 @@ happen? What actually happens, and which value is ultimately chosen?
         A3 starts proposing n=11
           but A1 does not receive its proposal
           A3 only has to wait for a majority of proposal responses
+
         A1: p10 a10v10 
         A2: p10        p11
         A3: p10        p11  a11v11
+
         A1 and A3 have accepted different values!
 
 What will happen?
@@ -378,6 +403,7 @@ Has the system agreed to a value at this point?
         A1: p10  a10vA               p12
         A2: p10          p11  a11vB  
         A3: p10          p11  a11vB  p12   a12v??
+
         n=11 already agreed on vB
         n=12 sees both vA and vB, but must choose vB
 
@@ -438,8 +464,8 @@ Scenario:
 
 #### What if an acceptor reboots after sending `prepare_ok`?
 
- - does it have to remember n_p on disk?
- - if n_p not remembered, this could happen:
+ - does it have to remember `n_p` on disk?
+ - if `n_p` not remembered, this could happen:
 
 Example:
 

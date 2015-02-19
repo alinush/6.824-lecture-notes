@@ -21,10 +21,13 @@
 
 <h2>Paxos</h2>
 
-<p>Links:
- - <a href="papers/paxos-simple.pdf">Paxos Made Simple</a>, by Leslie Lamport, 2001
- - <a href="https://www.quora.com/Distributed-Systems/What-is-a-simple-explanation-of-the-Paxos-algorithm">Simple explanations from Quora</a>
- - <a href="http://harry.me/blog/2014/12/27/neat-algorithms-paxos/">Neat Algorithms - Paxos</a></p>
+<p>Links:</p>
+
+<ul>
+<li><a href="papers/paxos-simple.pdf">Paxos Made Simple</a>, by Leslie Lamport, 2001</li>
+<li><a href="https://www.quora.com/Distributed-Systems/What-is-a-simple-explanation-of-the-Paxos-algorithm">Simple explanations from Quora</a></li>
+<li><a href="http://harry.me/blog/2014/12/27/neat-algorithms-paxos/">Neat Algorithms - Paxos</a></li>
+</ul>
 
 <p>Recall: RSM</p>
 
@@ -41,12 +44,13 @@
 <ul>
 <li>conceptually simple</li>
 <li>just two msgs per op (request, reply)</li>
-<li>primary can do computation, send result to bkup</li>
+<li>primary can do computation, send result to backup</li>
 <li>only two k/v servers needed to tolerate one failure</li>
+<li>works with network partition</li>
 </ul></li>
 <li><strong>con:</strong>
 <ul>
-<li>viewserver is single point of failure</li>
+<li>ViewServer is a <em>single point of failure</em></li>
 <li>order can be messy, e.g. new view, data to backup, ack, &amp;c</li>
 <li>tension if backup is slow / temporarily unavail
 <ol>
@@ -61,6 +65,7 @@
 <ul>
 <li>no single point of failure</li>
 <li>graceful handling of slow / intermittent replicas</li>
+<li>handling of network partitions</li>
 </ul>
 
 <p><strong>Paxos</strong> will be a key building block for this.</p>
@@ -83,7 +88,7 @@ each instance usually decides one operation
 assumptions: asynchronous, non-Byzantine</li>
 </ul>
 
-<h3>What does Paxos provide?</h3>
+<h3>What does Paxos provide? How does it work?</h3>
 
 <ul>
 <li><strong>"black-box"</strong> interface to a Paxos instance, on each node:
@@ -115,7 +120,7 @@ assumptions: asynchronous, non-Byzantine</li>
 <ul>
 <li>[ next Tuesday's lecture will be about such a system ]</li>
 </ul></li>
-<li>Lab 3: no ViewServer, all replicas use Paxos instead of primary/backup</li>
+<li><em>Lab 3</em>: no ViewServer, all replicas use Paxos instead of primary/backup</li>
 </ol>
 
 <p>Replicating either the ViewServer or K/V server with Paxos is similar.</p>
@@ -137,8 +142,26 @@ assumptions: asynchronous, non-Byzantine</li>
 <ul>
 <li><strong>TODO:</strong> Is this trying to say log entries are numbered sequentially?</li>
 </ul></li>
-<li>Paxos agreement on content of each log entry</li>
-<li><strong>TODO</strong> Ask question about concurrency here? Can one log entry be agreed on at the same time with another? What if they depend on one another like <code>Put(k1, a)</code> and <code>Append(k1, b)</code>?</li>
+<li>Paxos ensures agreement on content of each log entry</li>
+<li><strong>TODO</strong> Ask question about concurrency here? Can one log entry be agreed on at the same time with another? What if they depend on one another like <code>Put(k1, a)</code> and <code>Append(k1, b)</code>?
+<ul>
+<li><strong>A:</strong> Yes! They can! See below!</li>
+</ul></li>
+<li>separate Paxos agreement for each of these log entries
+<ul>
+<li>separate <em>instance</em> of Paxos algorithm is run for log entry #<code>i</code></li>
+</ul></li>
+<li><strong>Note:</strong> you can have agreed on log entry #<code>i</code> before agreeing on log entry #<code>i+1</code></li>
+<li>servers can throw away log entries that all other servers have agreed on (and responded to?)
+<ul>
+<li>but if a server crashes, the other servers will know to keep their log entries around for when it comes back</li>
+</ul></li>
+<li>protocol does <strong>not</strong> require designated proposers or leaders for correctness
+<ul>
+<li>these only help w/ performance</li>
+<li>low probability of proposing "livelock" that can be overcome by having proposers wait a random amount of time</li>
+</ul></li>
+<li>once a Paxos node agrees on a value it never changes it mind</li>
 </ul>
 
 <p>Example:</p>
@@ -401,15 +424,29 @@ assumptions: asynchronous, non-Byzantine</li>
 
 <pre><code>    `S1`, `S2`, `S3` but `S3` is dead or slow
 
-    `S1`: -&gt; starts proposal w/ n=1 v=A 
+    `S1`: -&gt; starts proposal w/ n=1 v=A
     `S1`: &lt;- p1   &lt;- a1vA    &lt;- dA
     `S2`: &lt;- p1   &lt;- a1vA    &lt;- dA
     `S3`: dead...
 
-    "p1" means Sx receives prepare(n=1) 
+    "p1" means Sx receives prepare(n=1)
     "a1vA" means Sx receives accept(n=1, v=A)
     "dA" means Sx receives decided(v=A)
 </code></pre>
+
+<ul>
+<li>S1 and S2 will reply with <code>prepare_ok(1, 0, null)</code> to the <code>p1</code> message.</li>
+<li>If <code>dA</code> is lost, one of the nodes waiting can run Paxos again and try a new <code>n</code> higher than the previous one.
+<ul>
+<li>the <code>prepare_ok(2, 1, 'A')</code> reply will come back,</li>
+<li>then the node is forced to send <code>a2vA</code> and hopefully this time, after the node gets the <code>accept_ok</code> message, it
+will send out <code>dA</code> messages that won't get lost again</li>
+</ul></li>
+<li>a value is said to be chosen when a majority of acceptors in the <code>accept</code> handler take the accept branch and accept the value
+<ul>
+<li>however, not everyone will <em>know</em> this, so that's why the <code>decide</code> message is sent out</li>
+</ul></li>
+</ul>
 
 <p>These diagrams are not specific about who the proposer is</p>
 
@@ -438,11 +475,13 @@ assumptions: asynchronous, non-Byzantine</li>
 <p>How does Paxos ensure that the following sequence of events can't
 happen? What actually happens, and which value is ultimately chosen?</p>
 
-<pre><code>  proposer 1 crashes after sending two accepts
+<pre><code>  proposer 1 crashes after sending two accept() requests
   proposer 2 has a different value in mind
+
   A: p1 a1foo
   B: p1       p2 a2bar
   C: p1 a1foo p2 a2bar
+
   C's prepare_ok to B really included "foo"
     thus a2foo, and so no problem
 </code></pre>
@@ -464,9 +503,11 @@ happen? What actually happens, and which value is ultimately chosen?</p>
     A3 starts proposing n=11
       but A1 does not receive its proposal
       A3 only has to wait for a majority of proposal responses
+
     A1: p10 a10v10 
     A2: p10        p11
     A3: p10        p11  a11v11
+
     A1 and A3 have accepted different values!
 </code></pre>
 
@@ -519,6 +560,7 @@ A3: p10          p11          p12   a12v10
 <pre><code>    A1: p10  a10vA               p12
     A2: p10          p11  a11vB  
     A3: p10          p11  a11vB  p12   a12v??
+
     n=11 already agreed on vB
     n=12 sees both vA and vB, but must choose vB
 </code></pre>
@@ -600,8 +642,8 @@ A2 must remember v_a/n_a across reboot! on disk
 <h4>What if an acceptor reboots after sending <code>prepare_ok</code>?</h4>
 
 <ul>
-<li>does it have to remember n_p on disk?</li>
-<li>if n_p not remembered, this could happen:</li>
+<li>does it have to remember <code>n_p</code> on disk?</li>
+<li>if <code>n_p</code> not remembered, this could happen:</li>
 </ul>
 
 <p>Example:</p>
