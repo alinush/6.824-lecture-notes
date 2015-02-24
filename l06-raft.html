@@ -1,0 +1,499 @@
+<h1>6.824 2015 Lecture 6: Raft</h1>
+
+<h2>This lecture</h2>
+
+<ul>
+<li>larger topic is fault tolerance via replicated state machines</li>
+<li>Raft -- a much more complete design than straight Paxos</li>
+</ul>
+
+<p>Russ Cox of Google will talk about Go on Thursday: </p>
+
+<ul>
+<li>submit your questions early, so we can get them to Russ</li>
+</ul>
+
+<p>Raft overview:</p>
+
+<pre><code>  clients -&gt; leader -&gt; followers -&gt; logs -&gt; execution
+</code></pre>
+
+<h2>Raft vs Paxos?</h2>
+
+<ul>
+<li>Our use of Paxos:
+<ul>
+<li>agrees separately on each client operation</li>
+</ul></li>
+<li>Raft:
+<ul>
+<li>agrees on each new leader (and on tail of log)</li>
+<li>agreement not required for most client operations</li>
+<li>Raft is Paxos optimized for log appends (more or less)</li>
+</ul></li>
+<li>why Raft-style leader?
+<ul>
+<li>no <em>dueling proposers</em> (unless leader fails)
+<ul>
+<li>leader just tells other people what to do</li>
+</ul></li>
+<li>fewer messages, less complexity (unless leader fails)</li>
+<li>well-defined notion of one log being more complete than another
+<ul>
+<li>simplifies switching leaders (and maybe crash recovery)</li>
+<li>very hard to find a solution for this in Paxos because logs have "holes"</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h2>What about understandability?</h2>
+
+<ul>
+<li>you must decide for yourself</li>
+<li>straight Paxos is simpler than Raft</li>
+<li>but straight Paxos is too simple for practical replication
+<ul>
+<li>everyone extends it in their own way</li>
+<li>and ends up with something more or less like Raft</li>
+</ul></li>
+<li>Paxos+log+leader probably not simpler than Raft
+<ul>
+<li>though presumably depends on which Paxos variant you choose</li>
+</ul></li>
+</ul>
+
+<p>Is more direct use of Paxos (like Lab 3) ever a win?</p>
+
+<ul>
+<li>i.e. is a Raft-style leader ever a bad idea?</li>
+<li>geographically spread peers</li>
+<li>a single leader would be far from some clients</li>
+<li>some peers would be slow to other peers (Paxos tolerates lag)</li>
+</ul>
+
+<p>Let's start w/ Raft w/ no leader change</p>
+
+<ul>
+<li>for now, reliable leader</li>
+<li>followers may be slow or unreachable (but they do not lose state)</li>
+<li>what do we want?
+<ol>
+<li>tolerate a <em>minority of failed followers</em></li>
+<li>live followers and dead followers <em>converge on same log</em>
+since replication requires same order of execution</li>
+<li><em>execute only when entry cannot be lost</em> (committed)
+since cannot easily undo execution or reply to client</li>
+</ol></li>
+<li>idea for ensuring identical log:
+<ul>
+<li>leader sends <em>log entry</em>, <em>index</em>, and info about <em>previous</em> entry</li>
+<li>client can reject (e.g I don't have previous entry!)</li>
+<li>leader backs up for that follower, sends earlier entries
+<ul>
+<li>leader forces followers' logs to be identical to leader's</li>
+</ul></li>
+</ul></li>
+<li>idea for execution:
+<ul>
+<li>idea #1 means leader knows follower is identical up to some point</li>
+<li>once a majority are identical up to a point,
+<ul>
+<li>leader sends that out as commit point,</li>
+<li>everyone can execute through that point,</li>
+<li>leader can reply to clients</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h3>What to do if the leader crashes?</h3>
+
+<ul>
+<li>other servers time out (no AppendEntries "heart-beats" for a while)</li>
+<li>if other servers are missing heartbeats they start to suspect 
+the leader is down
+<ul>
+<li>can't really know <em>for sure</em> leader is down/up on a network</li>
+</ul></li>
+<li>choose a new leader!</li>
+<li>Raft divides time into terms</li>
+<li>most terms have a leader</li>
+</ul>
+
+<h3>What are the dangers in transition to a new leader?</h3>
+
+<ul>
+<li>two leaders</li>
+<li>no leader</li>
+<li>might forget an executed log entry</li>
+<li>logs might end up different (diverge)</li>
+</ul>
+
+<p>Talk about leader election first, then log consistency at term boundary</p>
+
+<h3>How to ensure at most one leader in a term?</h3>
+
+<ul>
+<li>(look at Figure 2, RequestVote RPC, and Rules for Servers)</li>
+<li>leader must get votes from a majority of servers</li>
+<li><strong>Rule:</strong> server can cast only one vote per term</li>
+<li>thus at most one server can think it has won</li>
+<li>why a majority?
+<ul>
+<li>the answer is always the same!</li>
+<li>"requiring a majority means not requiring a minority essentially"</li>
+<li>allows fault tolerance (failure of minority doesn't impede progress)</li>
+<li>prevents split brain (at most one candidate can get a majority)</li>
+<li>ensures overlap (at least one in majority has every previously committed log entry)</li>
+</ul></li>
+</ul>
+
+<p>Could election fail to choose any leader?</p>
+
+<ul>
+<li>Yes!
+<ul>
+<li>>= 3 candidates split the vote evenly
+or even # of live servers, two candidates each get half</li>
+</ul></li>
+</ul>
+
+<h3>What happens after an election in which no-one gets majority?</h3>
+
+<ul>
+<li>timeout, increment term, new election</li>
+<li>when a server decides it might wants to be a candidate it 
+first waits a random delay and only if it doesn't hear from anyone else
+then it becomes a candidate</li>
+<li>higher term takes precedence, candidates for older terms quit</li>
+<li>Note: timeout must be longer than it takes to complete election!</li>
+<li>Note: this means some terms may have no leader, no log entries</li>
+</ul>
+
+<h3>How does Raft reduce chances of election failure due to split vote?</h3>
+
+<ul>
+<li>each server delays a random amount of time before starting candidacy</li>
+<li>why is the random delay useful?
+<ul>
+<li>[see diagram of times at which servers' delays expire]</li>
+<li>one will choose lowest random delay</li>
+<li>hopefully enough time to elect before next delay expires</li>
+<li>this idea comes up often in distributed systems</li>
+</ul></li>
+</ul>
+
+<p>Diagram:</p>
+
+<pre><code>            20 ms                   50 ms             80 ms
+|-------------*-----------------------*-----------------*-----------|
+              S1                     S2                S3
+</code></pre>
+
+<h3>How to choose the random delay range?</h3>
+
+<ul>
+<li>too short: 2nd candidate starts before first finishes</li>
+<li>too long: system sits idle for too long after leader fails</li>
+<li>a rough guide:
+<ul>
+<li>suppose it takes 10ms to complete an unopposed election</li>
+<li>and there are five servers</li>
+<li>we want delays to be separated by (say) 20ms</li>
+<li>so random delay from 0 to 100 ms</li>
+<li>plus a few multiples of leader heartbeat interval</li>
+</ul></li>
+</ul>
+
+<p>Remember this random delay idea!</p>
+
+<ul>
+<li>it's a classic scheme for decentralized soft election; e.g. ethernet</li>
+</ul>
+
+<p>Raft's elections follow a common pattern: separation of safety from progress</p>
+
+<ul>
+<li><em>Hard</em> mechanisms ensure <code>&lt; 2</code> leaders in one term
+<ul>
+<li>Problem: elections can fail (e.g. 3-way split)</li>
+</ul></li>
+<li>Solution: always safe to start a new election in a new term
+<ul>
+<li>Poblem: repeated elections can prevent any work getting done</li>
+</ul></li>
+<li>Solution: <em>soft</em> mechanisms reduce probability of wasted elections
+<ul>
+<li>heartbeat from leader (remind servers not to start election)</li>
+<li>timeout period (don't start election too soon)</li>
+<li>random delays (give one leader time to be elected)</li>
+</ul></li>
+</ul>
+
+<p><strong>Remember:</strong> there's a way to split the problem into "safety/correctness" concerns and "liveness/performance" concerns</p>
+
+<h3>What if old leader isn't aware a new one is elected?</h3>
+
+<ul>
+<li>perhaps b/c old leader didn't see election messages</li>
+<li>new leader means a majority of servers have incremented currentTerm
+<ul>
+<li>so old leader (w/ old term) can't get majority for AppendEntries</li>
+<li>though a minority may accept old server's log entries...</li>
+<li>so logs may diverge at end of old term...</li>
+</ul></li>
+</ul>
+
+<p>Now let's switch topics to <strong>data handling</strong> at term boundaries</p>
+
+<p>What do we want to ensure?</p>
+
+<ul>
+<li>each server executes the same client cmds, in the same order
++i.e. if any server executes, then no server executes something
+else for that log entry</li>
+<li>as long as single leader, we've already seen it makes logs identical
+what about when leader changes?</li>
+</ul>
+
+<p>What's the danger?</p>
+
+<p>Leader of term 3 crashed while sending <code>AppendEntries</code></p>
+
+<pre><code>S1: 3
+S2: 3 3
+S3: 3 3
+S2 and S3 might have executed; does Raft preserve it?
+</code></pre>
+
+<p>May be a series of crashes, e.g.</p>
+
+<pre><code>S1: 3
+S2: 3 3 (new leader) 4
+S3: 3 3                (new leader) 5
+</code></pre>
+
+<p>Thus different entries for the same index!</p>
+
+<p>Roll-back is a big hammer -- forces leader's log on everyone</p>
+
+<ul>
+<li>in above examples, whoever is elected imposes log on everyone</li>
+<li>Example:
+<ul>
+<li>S3 is chosen as new leader for term 6</li>
+<li>S3 wants to send out a new entry (in term 6)
+<ul>
+<li><code>AppendEntries</code> says previous entry must have term 5</li>
+</ul></li>
+<li>S2 replies false (<code>AppendEntries</code> step 2)</li>
+<li>S3 decrements <code>nextIndex[S2]</code></li>
+<li>S3 sends <code>AppendEntries</code> for the term=5 op, saying prev has term=3</li>
+<li>S2 deletes op from term 4 (<code>AppendEntries</code> step 3) and replaces with op for term 5 from S3
+(and S1 rejects b/c it doesn't have anything in that entry)
+<ul>
+<li>S2 sets op for term 6 as well</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<p>Ok, leader will force its own log on followers</p>
+
+<ul>
+<li>but that's not enough!</li>
+<li>can roll-back delete an executed entry?</li>
+</ul>
+
+<p>When is a log entry executed?</p>
+
+<ul>
+<li>when leader advances <code>commitIndex/leaderCommit</code></li>
+<li>when a majority match the leader up through this point</li>
+</ul>
+
+<p>Could new leader roll back executed entries from end of previous term?</p>
+
+<ul>
+<li>i.e. could an executed entry be missing from the new leader's log?</li>
+<li>Raft needs to ensure new leader's log contains every potentially executed entry</li>
+<li>i.e. must forbid election of server who might be missing an executed entry</li>
+</ul>
+
+<p>What are the election rules?</p>
+
+<ul>
+<li>Figure 2 says only vote if candidate's log "at least as up to date"</li>
+<li>So leader will be <em>at least as up to date</em> as a majority</li>
+</ul>
+
+<p>What does "at least as up to date" mean?</p>
+
+<p>Could it mean log is >= length? No, example:</p>
+
+<pre><code>S1: 5, (leader) 6, (crash + leader) 7,
+S2: 5                                  (leader) 8  
+S3: 5                                           8
+</code></pre>
+
+<ul>
+<li>first, could this scenario happen? how?
+<ul>
+<li>S1 leader in epoch 6; crash+reboot; leader in epoch 7; crash and stay down
+<ul>
+<li>both times it crashed after only appending to its own log</li>
+</ul></li>
+<li>S2 leader in epoch 8, only S2+S3 alive, then crash</li>
+</ul></li>
+<li>who should be next leader?
+<ul>
+<li>S1 has longest log, but entry 8 is committed !!!
+<ul>
+<li>Raft adopts leader's log, so S1 as leader -> un-commit entry 8</li>
+<li>this would be incorrect since S2 may have replied to client</li>
+</ul></li>
+<li>so new leader can only be one of S2 or S3</li>
+<li>i.e. the rule cannot be simply "longest log"</li>
+</ul></li>
+</ul>
+
+<p>End of 5.4.1 explains "at least as up to date" voting rule</p>
+
+<ul>
+<li>compare last entry</li>
+<li>higher term wins</li>
+<li>if equal terms, longer log wins</li>
+</ul>
+
+<p>So:</p>
+
+<ul>
+<li>S1 can't get any vote from S2 or S3, since <code>7 &lt; 8</code></li>
+<li>S1 will vote for either S2 or S3, since <code>8 &gt; 7</code></li>
+<li>S1's operations from terms 6 and 7 will be discarded!
+<ul>
+<li>ok since no majority -> not executed -> no client reply</li>
+</ul></li>
+</ul>
+
+<p>The point:</p>
+
+<ul>
+<li>"at least as up to date" rule causes new leader to have all executed
+entries in its log</li>
+<li>so new leader won't roll back any executed operation</li>
+<li>similar to Paxos: new round ends up using chosen value (if any) of prev round</li>
+</ul>
+
+<p>The question: Figure 7, which of a/d/f could be elected?</p>
+
+<ul>
+<li>i.e. majority of votes from "less up to date" servers?</li>
+</ul>
+
+<p>The most subtle thing about Raft (figure 8)</p>
+
+<p>Figure 8:</p>
+
+<pre><code>S1 1, L 2,    ,      L 4,
+S2 1,   2,    ,      \A/
+S3 1,    ,    , 2   &lt;-| ,
+S4 1,    ,    ,         ,
+S5 1,    , L 3,         , L will erase all 2's
+</code></pre>
+
+<ul>
+<li>not 100% true that a log entry on a majority is committed
+<ul>
+<li>i.e. will never be forgotten</li>
+</ul></li>
+<li>Figure 8:
+<ul>
+<li>S1 was leader in term 2, sends out two copies of 2</li>
+<li>S5 leader in term 3</li>
+<li>S1 in term 4, sends one more copy of 2 (b/c S3 rejected op 4)</li>
+<li>what if S5 now becomes leader?
+<ul>
+<li>S5 can get a majority (w/o S1)</li>
+<li>S5 will roll back 2 and replace it with 3</li>
+</ul></li>
+<li>could 2 have executed?
+<ul>
+<li>it is on a majority...</li>
+<li>so could S1 have mentioned it in leaderCommit after majority?</li>
+<li>no! very end of Figure 2 says "log[N].term == currentTerm"</li>
+<li>and S1 was in term 4 when sending 3rd copy of 2</li>
+</ul></li>
+<li>what's Raft's actual commit point?
+<ul>
+<li>bottom-right of page 310</li>
+<li>"committed once the leader that created the entry has replicated on majority"</li>
+<li>and commit point of one entry commits all before it</li>
+<li>which is how 2 <em>could</em> have committed if S1 hadn't lost leadership</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<p>Another topic: configuration change (Section 6)</p>
+
+<ul>
+<li>configuration = set of servers</li>
+<li>how does Raft change the set of servers?</li>
+<li>e.g. every few years might want to retire some, add some</li>
+<li>or move all at once to an entirely new set of server</li>
+<li>or increase/decrease the number of servers</li>
+</ul>
+
+<p>How might a <em>broken</em> configuration change work?</p>
+
+<ul>
+<li>each server has the list of servers in the current config</li>
+<li>change configuation by changing lists, one by one</li>
+<li>example: want to replace S3 with S4
+<ul>
+<li>S1: 1,2,3  1,2,4</li>
+<li>S2: 1,2,3  1,2,3</li>
+<li>S3: 1,2,3  1,2,3</li>
+<li>S4: 1,2,4  1,2,4</li>
+</ul></li>
+<li>OOPS!
+<ul>
+<li>now <em>two</em> disjoint group/leaders can form:
+<ul>
+<li>S2 and S3 (who know nothing of new config)</li>
+<li>S1 and S4</li>
+</ul></li>
+<li>both can process client requests, so split brain</li>
+</ul></li>
+</ul>
+
+<p>Raft configuration change</p>
+
+<p>idea: "join consensus" stage that includes <em>both</em> old and new configuration
+  leader of old group logs entry that switches to joint consensus
+  during joint consensus, leader separately logs in old and new
+    i.e. <em>two</em> log and <em>two</em> agreements on each log entry
+    this will force new servers to catch up
+    and force new and old logs to be the same
+  after majority of old and new have switched to joint consensus,
+    leader logs entry that switches to final configuration
+  S1: 1,2,3  1,2,3+1,2,4
+  S2: 1,2,3
+  S3: 1,2,3
+  S4:        1,2,3+1,2,4
+  if crash but new leader didn't see the switch to joint consensus,
+    then old group will continue, no switch, but that's OK
+  if crash and new leader did see the switch to joint consensus,
+    it will complete the configuration change</p>
+
+<p>Performance</p>
+
+<p>no numbers on how fast it can process requests
+  what are the bottlenecks likely to be?
+  disk:
+    need to write disk for client data durability, and for protocol promises
+    write per client request? so 100 per second?
+    could probably batch and get 10,000 to 100,000
+  net: a few message exchanges per client request
+    10s of microseconds for local LAN message exchange?
+    so 100,000 per second?</p>
+
+<p>Next week: use of a Raft-like protocol in a complex application</p>
