@@ -1,16 +1,13 @@
 <h1>6.824 2015 Lecture 6: Raft</h1>
 
-<h2>This lecture</h2>
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the 6.824 
+<a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from Spring 2015.</p>
+
+<h2>This lecture: Raft</h2>
 
 <ul>
 <li>larger topic is fault tolerance via replicated state machines</li>
 <li>Raft -- a much more complete design than straight Paxos</li>
-</ul>
-
-<p>Russ Cox of Google will talk about Go on Thursday: </p>
-
-<ul>
-<li>submit your questions early, so we can get them to Russ</li>
 </ul>
 
 <p>Raft overview:</p>
@@ -18,7 +15,7 @@
 <pre><code>  clients -&gt; leader -&gt; followers -&gt; logs -&gt; execution
 </code></pre>
 
-<h2>Raft vs Paxos?</h2>
+<h3>Raft vs Paxos?</h3>
 
 <ul>
 <li>Our use of Paxos:
@@ -46,7 +43,7 @@
 </ul></li>
 </ul>
 
-<h2>What about understandability?</h2>
+<h3>What about understandability?</h3>
 
 <ul>
 <li>you must decide for yourself</li>
@@ -465,35 +462,60 @@ S5 1,    , L 3,         , L will erase all 2's
 </ul></li>
 </ul>
 
-<p>Raft configuration change</p>
+<h3>Raft configuration change</h3>
 
-<p>idea: "join consensus" stage that includes <em>both</em> old and new configuration
-  leader of old group logs entry that switches to joint consensus
-  during joint consensus, leader separately logs in old and new
-    i.e. <em>two</em> log and <em>two</em> agreements on each log entry
-    this will force new servers to catch up
-    and force new and old logs to be the same
-  after majority of old and new have switched to joint consensus,
-    leader logs entry that switches to final configuration
-  S1: 1,2,3  1,2,3+1,2,4
+<ul>
+<li><strong>Idea:</strong> "join consensus" stage that includes <em>both</em> old and new configuration</li>
+<li>leader of old group logs entry that switches to joint consensus
+<ul>
+<li>during joint consensus, leader separately logs in old and new
+<ul>
+<li>i.e. <em>two</em> log and <em>two</em> agreements on each log entry</li>
+<li>this will force new servers to catch up
+and force new and old logs to be the same</li>
+</ul></li>
+</ul></li>
+<li>after majority of old and new have switched to joint consensus,
+<ul>
+<li>leader logs entry that switches to final configuration</li>
+</ul></li>
+</ul>
+
+<p>Example (which won't make sense because it's not properly illustrated in the original notes):</p>
+
+<pre><code>  S1: 1,2,3  1,2,3+1,2,4
   S2: 1,2,3
   S3: 1,2,3
   S4:        1,2,3+1,2,4
-  if crash but new leader didn't see the switch to joint consensus,
-    then old group will continue, no switch, but that's OK
-  if crash and new leader did see the switch to joint consensus,
-    it will complete the configuration change</p>
+</code></pre>
 
-<p>Performance</p>
+<ul>
+<li>if crash but new leader didn't see the switch to joint consensus,
+<ul>
+<li>then old group will continue, no switch, but that's OK</li>
+</ul></li>
+<li>if crash and new leader did see the switch to joint consensus,
+<ul>
+<li>it will complete the configuration change</li>
+</ul></li>
+</ul>
 
-<p>no numbers on how fast it can process requests
-  what are the bottlenecks likely to be?
-  disk:
-    need to write disk for client data durability, and for protocol promises
-    write per client request? so 100 per second?
-    could probably batch and get 10,000 to 100,000
-  net: a few message exchanges per client request
-    10s of microseconds for local LAN message exchange?
-    so 100,000 per second?</p>
+<h3>Performance</h3>
 
-<p>Next week: use of a Raft-like protocol in a complex application</p>
+<ul>
+<li>no numbers on how fast it can process requests</li>
+<li>what are the bottlenecks likely to be?</li>
+<li>disk:
+<ul>
+<li>need to write disk for client data durability, and for protocol promises</li>
+<li>write per client request? so 100 per second?</li>
+<li>could probably batch and get 10,000 to 100,000</li>
+</ul></li>
+<li>net: a few message exchanges per client request
+<ul>
+<li>10s of microseconds for local LAN message exchange?</li>
+<li>so 100,000 per second?</li>
+</ul></li>
+</ul>
+
+<p><em>Next week:</em> use of a Raft-like protocol in a complex application</p>

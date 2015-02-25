@@ -7,4 +7,5 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 2: [Remote Procedure Calls (RPCs)](l02-rpc.html): RPC overview, marshalling, binding, threads, "at-least-once", "at-most-once", "exactly once", Go's RPC, thread synchronization
  * Lecture 3: [Fault tolerance](l03-fault-tolerance.html): primary-backup replication, state transfer, "split-brain", Remus (NSDI 2008),  
  * Lecture 4: [Flat datacenter storage](l04-more-primary-backup.html): flat datacenter storage
- * Lecture 5: [Paxos](l05-paxos.html): Paxos
+ * Lecture 5: [Paxos](l05-paxos.html): Paxos, a consensus algorithm
+ * Lecture 6: [Raft](l06-raft.html): Raft, a more understandable consensus algorithm

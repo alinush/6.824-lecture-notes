@@ -1,22 +1,20 @@
 6.824 2015 Lecture 6: Raft
 ==========================
 
-This lecture
-------------
+**Note:** These lecture notes were slightly modified from the ones posted on the 6.824 
+[course website](http://nil.csail.mit.edu/6.824/2015/schedule.html) from Spring 2015.
+
+This lecture: Raft
+------------------
 
  + larger topic is fault tolerance via replicated state machines
  + Raft -- a much more complete design than straight Paxos
-
-Russ Cox of Google will talk about Go on Thursday: 
-
- + submit your questions early, so we can get them to Russ
 
 Raft overview:
 
       clients -> leader -> followers -> logs -> execution
 
-Raft vs Paxos?
---------------
+### Raft vs Paxos?
 
  - Our use of Paxos:
    + agrees separately on each client operation
@@ -32,8 +30,7 @@ Raft vs Paxos?
      - simplifies switching leaders (and maybe crash recovery)
      - very hard to find a solution for this in Paxos because logs have "holes"
 
-What about understandability?
------------------------------
+### What about understandability?
 
  - you must decide for yourself
  - straight Paxos is simpler than Raft
@@ -329,35 +326,39 @@ How might a *broken* configuration change work?
      - S1 and S4
    + both can process client requests, so split brain
 
-Raft configuration change
+### Raft configuration change
 
-  idea: "join consensus" stage that includes *both* old and new configuration
-  leader of old group logs entry that switches to joint consensus
-  during joint consensus, leader separately logs in old and new
-    i.e. *two* log and *two* agreements on each log entry
-    this will force new servers to catch up
-    and force new and old logs to be the same
-  after majority of old and new have switched to joint consensus,
-    leader logs entry that switches to final configuration
-  S1: 1,2,3  1,2,3+1,2,4
-  S2: 1,2,3
-  S3: 1,2,3
-  S4:        1,2,3+1,2,4
-  if crash but new leader didn't see the switch to joint consensus,
-    then old group will continue, no switch, but that's OK
-  if crash and new leader did see the switch to joint consensus,
-    it will complete the configuration change
+ - **Idea:** "join consensus" stage that includes *both* old and new configuration
+ - leader of old group logs entry that switches to joint consensus
+   + during joint consensus, leader separately logs in old and new
+     - i.e. *two* log and *two* agreements on each log entry
+     - this will force new servers to catch up
+       and force new and old logs to be the same
+ - after majority of old and new have switched to joint consensus,
+   + leader logs entry that switches to final configuration
 
-Performance
+Example (which won't make sense because it's not properly illustrated in the original notes):
 
-  no numbers on how fast it can process requests
-  what are the bottlenecks likely to be?
-  disk:
-    need to write disk for client data durability, and for protocol promises
-    write per client request? so 100 per second?
-    could probably batch and get 10,000 to 100,000
-  net: a few message exchanges per client request
-    10s of microseconds for local LAN message exchange?
-    so 100,000 per second?
+      S1: 1,2,3  1,2,3+1,2,4
+      S2: 1,2,3
+      S3: 1,2,3
+      S4:        1,2,3+1,2,4
 
-Next week: use of a Raft-like protocol in a complex application
+ - if crash but new leader didn't see the switch to joint consensus,
+   + then old group will continue, no switch, but that's OK
+ - if crash and new leader did see the switch to joint consensus,
+   + it will complete the configuration change
+
+### Performance
+
+ - no numbers on how fast it can process requests
+ - what are the bottlenecks likely to be?
+ - disk:
+   + need to write disk for client data durability, and for protocol promises
+   + write per client request? so 100 per second?
+   + could probably batch and get 10,000 to 100,000
+ - net: a few message exchanges per client request
+   + 10s of microseconds for local LAN message exchange?
+   + so 100,000 per second?
+
+_Next week:_ use of a Raft-like protocol in a complex application
