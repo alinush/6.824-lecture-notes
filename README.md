@@ -8,4 +8,5 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 3: [Fault tolerance](l03-fault-tolerance.html): primary-backup replication, state transfer, "split-brain", Remus (NSDI 2008),  
  * Lecture 4: [Flat datacenter storage](l04-more-primary-backup.html): flat datacenter storage
  * Lecture 5: [Paxos](l05-paxos.html): Paxos, a consensus algorithm
+   + [Paxos algorithm description](paxos-algorithm.html)
  * Lecture 6: [Raft](l06-raft.html): Raft, a more understandable consensus algorithm

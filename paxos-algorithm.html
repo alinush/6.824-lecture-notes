@@ -1,0 +1,44 @@
+<p>It's magic!</p>
+
+<p>
+<pre>
+    --- Paxos Proposer ---
+
+    1  proposer(v):
+    2    choose n, unique and higher than any n seen so far
+    3    send prepare(n) to all servers including self
+    4    if prepare_ok(n, n_a, v_a) from majority:
+    5      v' = v_a with highest n_a; choose own v otherwise
+    6      send accept(n, v') to all
+    7      if accept_ok(n) from majority:
+    8        send decided(v') to all
+
+    --- Paxos Acceptor ---
+
+    acceptor state:
+      must persist across reboots
+      n_p (highest prepare seen)
+      n_a, v_a (highest accept seen)
+
+    acceptor's prepare handler:
+
+    10  prepare(n):
+    11    if n > n_p
+    12      n_p = n
+    13      reply prepare_ok(n, n_a, v_a)
+    14    else
+    15      reply prepare_reject
+
+    acceptor's accept(n, v) handler:
+
+    16  accept(n, v):
+    17    if n >= n_p
+    18      n_p = n
+    19      n_a = n
+    20      v_a = v
+    21      reply accept_ok(n)
+    22    else
+    23      reply accept_reject
+
+</pre>
+</p>
