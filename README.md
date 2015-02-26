@@ -10,3 +10,4 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 5: [Paxos](l05-paxos.html): Paxos, a consensus algorithm
    + [Paxos algorithm description](paxos-algorithm.html)
  * Lecture 6: [Raft](l06-raft.html): Raft, a more understandable consensus algorithm
+ * Lecture 7: **Google Go** _guest lecture_ by Russ Cox

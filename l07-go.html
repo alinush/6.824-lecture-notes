@@ -1,0 +1,208 @@
+<h1>Russ Cox's lecture on Go</h1>
+
+<h2>Why Go?</h2>
+
+<ul>
+<li>an answer to the problems of scalability at Google
+<ul>
+<li><code>10^6+</code> machines design point</li>
+<li>it's routine to be running on 1000 machines</li>
+<li>constantly writing programs that coordinate with each other
+<ul>
+<li>sometimes MapReduce works, other times it doesn't</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h2>Who uses Go at Google</h2>
+
+<ul>
+<li>SPDY proxy for Chrome on mobile devices uses a Go-written <em>Data Compression Proxy</em></li>
+<li>dl.google.com</li>
+<li>YouTube MySQL balancer</li>
+<li>the target is network servers, but it's a great gen. purp. language</li>
+<li>Bitbucket, bitly, GitHub, Dropbox, MongoDB, Mozilla services, NY Times, etc.</li>
+</ul>
+
+<h2>Concurrency</h2>
+
+<ul>
+<li>"Communicating Sequential Processes", by Hoare, 1978
+<ul>
+<li>strongly encouraged to read</li>
+<li>in some sense, a generalization of UNIX pipelines</li>
+</ul></li>
+<li>Bell Labs had some languages developed for concurrency in 80's, 90's:
+<ul>
+<li>Pan, Promela, Newsqueak, Alef, Limbo, Libthread, Concurrent ML</li>
+</ul></li>
+<li>Google developed Go in the 2000s</li>
+</ul>
+
+<h3>There's no goroutine IDs</h3>
+
+<ul>
+<li>"There's no goroutine IDs, so I can't kill my threads"
+<ul>
+<li>This is what channels are for: just tell your thread via a channel to shut itself off</li>
+<li>Also, it's kind of "antisocial" to kill them.
+<ul>
+<li>What we mean is that your program is prolly not gonna work very well if you keep killing your threads like that</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h3>Channels vs. Mutexes</h3>
+
+<ul>
+<li>if you need a mutex, use a mutex</li>
+<li>if you need condition variable, think about using a channel instead</li>
+<li>don't communicate by sharing memory, you share memory by communicating</li>
+</ul>
+
+<h3>Network channels</h3>
+
+<ul>
+<li>it'd be great to have the equivalent for a network channel</li>
+<li>if you take local abstractions (like channels) and use them in a new
+context like a network, ignoring failure modes (etc), then you're gonna
+run into trouble</li>
+</ul>
+
+<h2>Scale of engineering efforts</h2>
+
+<p>In 2011, Google had:</p>
+
+<ul>
+<li>5000+ developers </li>
+<li>20+ changes per minute</li>
+<li>50% code base changes every month (files? not lines probably)</li>
+<li>50 million test cases executed per day</li>
+<li>single code tree projects</li>
+</ul>
+
+<p>A new language was needed to fix the problems that other languages had with software engineering at this scale</p>
+
+<p>The scale of compilation matters. 
+ - When you compile a package A that depends on B, most (all?) languages need to compile B first
+ - Go doesn't.
+ - Dependencies like these at the scale of Google projects slow down compilation if you use a traditional language
+   + gets worse with "deeper" dependencies <code>A-&gt;B-&gt;C-&gt;D-&gt;...</code>
+ - <em>Example:</em> at some point they found a postscript interpreter compiled in a server binary for no reason due to weird deps</p>
+
+<h3>Interfaces vs. inheritance</h3>
+
+<ul>
+<li>inhertance hierarchies are hard to get right and if you don't they are hard to change later</li>
+<li>interfaces are much more informal and clearer about who owns and supplies what parts of the program</li>
+</ul>
+
+<h3>Readability and simplicity</h3>
+
+<ul>
+<li>Dick Gabriel quote:</li>
+<li>Simplify syntax</li>
+<li>Avoid cleverness: ternary operators, macros</li>
+<li>Don't let code writing be like "arguing with your compiler"</li>
+<li>Don't want to puzzle through code 6 months later</li>
+</ul>
+
+<h2>Design criteria</h2>
+
+<ul>
+<li>started by Rob Pike, Robert Griesemer and Ken Thompson in late 2007</li>
+<li>Russ Cox, Ian Lance Taylor joined in mid-2008</li>
+<li>design by consensus (everyone could veto a feature, if they didn't want it)</li>
+</ul>
+
+<h3>Generics</h3>
+
+<ul>
+<li>Russ: "Don't use <code>*list.List</code>, you almost never need them. Use slices."
+<ul>
+<li>Generics are not bad, just hard to do right.
+<ul>
+<li>Early designers for Java generics also agreed and warned Go designers to be careful</li>
+<li>Seems like they regretted getting into that business</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h3>Enginering tools</h3>
+
+<ul>
+<li>when you have millions of lines of code, you need mechanical help
+<ul>
+<li>like changing an API</li>
+</ul></li>
+<li>Go designed to be easy to parse (not like C++)</li>
+<li>standard formatter</li>
+<li>Means you can't tell a mechanical change from a manual change
+<ul>
+<li>enables automated rewrites of code</li>
+</ul></li>
+</ul>
+
+<h3>More automation</h3>
+
+<ul>
+<li>fix code for API updates
+<ul>
+<li>early Go versions API changed a lot</li>
+<li>Google had a rewriter that would fix your code which used the changed APIs</li>
+</ul></li>
+<li>renaming struct fields, variables w/ conflict resolution</li>
+<li>moving packages</li>
+<li>splitting of packages</li>
+<li>code cleanup</li>
+<li>change C code to Go</li>
+<li>global analysis that figure out what are all the implementors of an interface for instance</li>
+</ul>
+
+<h2>State of Go</h2>
+
+<ul>
+<li>Go 1.4 released in Decembeer 2014</li>
+<li>Go 1.5 has toolchain implemented in Go, not in C
+<ul>
+<li>concurrent GC</li>
+<li>Go for mobile devices</li>
+<li>Go on PowerPC, ARM64</li>
+</ul></li>
+<li>Lots of people use it</li>
+<li>Go conferences outside of Google/Go</li>
+</ul>
+
+<h2>Q&amp;A</h2>
+
+<ul>
+<li>Go vs C/C++
+<ul>
+<li>Go is garbage collected, biggest difference, so slower</li>
+<li>Go can be faster than Java sometimes</li>
+<li>once you're aware of that, you can write code that
+runs faster than C/C++ code</li>
+<li>no reason that code that doesn't allocate memory
+shouldn't run as fast as C/C++</li>
+</ul></li>
+<li>Goal to use Go outside Google?
+<ul>
+<li>Yes! Otherwise the language would die?</li>
+<li>You get a breadth of experts that give you advice and write tools, etc.
+<ul>
+<li>C++ memory model guy gave feedback on Go memory model</li>
+<li>Very usefl</li>
+</ul></li>
+<li>Not trying to replace anything like language X
+<ul>
+<li>but they were using C/C++ and didn't want to anymore</li>
+<li>however Python and Ruby users are switching to Go more</li>
+<li>Go feels just as light but statically type checked</li>
+</ul></li>
+</ul></li>
+<li>Studies about benefits of Go?
+<ul>
+<li>not a lot of data collected</li>
+</ul></li>
+ - 
+</ul>
