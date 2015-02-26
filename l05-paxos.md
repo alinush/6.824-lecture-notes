@@ -23,6 +23,7 @@ Links:
  - [Simple explanations from Quora](https://www.quora.com/Distributed-Systems/What-is-a-simple-explanation-of-the-Paxos-algorithm)
  - [Neat Algorithms - Paxos](http://harry.me/blog/2014/12/27/neat-algorithms-paxos/)
  - [Paxos Replicated State Machines as the Basis of a High-Performance Data Store](http://static.usenix.org/event/nsdi11/tech/full_papers/Bolosky.pdf)
+
 Recall: RSM
 
  + maintain replicas by executing operations in the same order
