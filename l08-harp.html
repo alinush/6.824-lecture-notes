@@ -1,0 +1,623 @@
+<h1>6.824 2015 Lecture 8: Harp</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the 6.824 
+<a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from Spring 2015.</p>
+
+<p>Paper: <a href="papers/bliskov-harp.pdf">Replication in the Harp File System</a></p>
+
+<ul>
+<li>Liskov, Ghemawat, Gruber, Johnson, Shrira, Williams</li>
+<li>SOSP 1991</li>
+</ul>
+
+<h4>Why are we reading this paper?</h4>
+
+<ul>
+<li>Harp was the first complete primary/backup system that dealt w/ partition</li>
+<li>It's a complete case study of a replicated service (file server)</li>
+<li>It uses Raft-like replication techniques</li>
+</ul>
+
+<h4>How could a 1991 paper still be worth reading?</h4>
+
+<ul>
+<li>Harp introduced techniques that are still widely used</li>
+<li>There are few papers describing complete replicated systems</li>
+</ul>
+
+<h4>The paper is a mix of fundamentals and incidentals</h4>
+
+<ul>
+<li>We care a lot about replication</li>
+<li>We may not care much about NFS specifically
+<ul>
+<li>But we care a lot about the challenges faced when integrating
+a real application with a replication protocol.</li>
+</ul></li>
+<li>And we care about where optimization is possible.</li>
+</ul>
+
+<h4>I'm going to focus on parts of Harp that aren't already present in Raft.</h4>
+
+<ul>
+<li>But note that Harp pre-dates Raft by 20+ years.</li>
+<li>Raft is, to a great extent, a tutorial on ideas pioneered by Harp.
+<ul>
+<li>Though they differ in many details.</li>
+</ul></li>
+</ul>
+
+<h4>What does Harp paper explain that Raft paper does not?</h4>
+
+<ul>
+<li>Adapting a complex service to state machine abstraction
+<ul>
+<li>e.g. possibility of applying an operation twice</li>
+</ul></li>
+<li>Lots of optimizations
+<ul>
+<li>pipelining of requests to backup</li>
+<li>witness, to reduce the # of replicas</li>
+<li>primary-only execution of read-only operations using leases</li>
+</ul></li>
+<li>Efficient re-integration of re-started server with large state
+<ul>
+<li>Don't want to do things like copying entire disks</li>
+<li>"Catch-up" for re-joining replicas</li>
+</ul></li>
+<li>Power failure, including simultaneous failure of all servers</li>
+<li>Efficient persistence on disk</li>
+<li>Freeing of log</li>
+</ul>
+
+<h4>Harp authors had not implemented recovery yet</h4>
+
+<ul>
+<li>Earlier paper (1988) describes <a href="http://www.pmg.csail.mit.edu/papers/vr.pdf">View-stamped Replication</a></li>
+<li><a href="http://pmg.csail.mit.edu/papers/vr-revisited.pdf">Later (2006) paper</a> has clearer description, though a bit different:</li>
+</ul>
+
+<h4>Basic setup is familiar</h4>
+
+<ul>
+<li>Clients, primary, backup(s), witness(es).</li>
+<li>Client -> Primary</li>
+<li>Primary -> Backups</li>
+<li>Backups -> Primary
+<ul>
+<li>Primary waits for all backups / promoted witnesses in current view</li>
+<li>Commit point</li>
+</ul></li>
+<li>Primary -> execute and reply to Client</li>
+<li>Primary -> tell Backups to Commit</li>
+<li><code>2n+1</code> servers, <code>n</code> backups, <code>n</code> witnesses, 1 primary
+<ul>
+<li>need a majority of <code>n+1</code> servers <code>=&gt;</code></li>
+<li>tolerate up to <code>n</code> failures</li>
+</ul></li>
+<li>clients send NFS requests to primary
+<ul>
+<li>primary forwards each request to all the backups</li>
+<li>after all the backups have replied, the primary can
+execute the op and apply it to its FS</li>
+<li>in a later operation, primary piggybacks an ACK to tell
+backups the op. commited</li>
+</ul></li>
+</ul>
+
+<h4>Why are <code>2b+1</code> servers necessary to tolerate <code>b</code> failures?</h4>
+
+<ul>
+<li>(This is review...)</li>
+<li>Suppose we have <code>N</code> servers, and execute a write.</li>
+<li>Can't wait for more than N-b, since b might be dead.</li>
+<li>So let's require waiting for N-b for each operation.</li>
+<li>The b we didn't wait for might be live and in another partition.</li>
+<li>We can prevent them from proceeding if <code>b &lt; N-b</code>.</li>
+<li>I.e. <code>2b &lt; N; N = 2b + 1</code> is enough.</li>
+</ul>
+
+<h4>What are Harp's witnesses?</h4>
+
+<ul>
+<li>The primary and backups have FSs</li>
+<li>The witnesses don't receive anything from primary and don't have FSs</li>
+<li>Suppose we have a <code>P, B</code> and a <code>W</code></li>
+<li>If there's a partition <code>P | B, W</code>, the witness acts as a tie breaker
+<ul>
+<li>whichever one (P or B) can talk to the witness gets to continue and execute client
+side operations</li>
+<li>witness acts as a tie breaker: whoever can talk to it wins and gets to
+act as a primary</li>
+</ul></li>
+<li>a second use of the witness is to record operations, once say it's part of
+the partition <code>B, W</code> so that a majority of nodes have the latest operations</li>
+<li><p>a final function of the witness is that when the primary comes back to life,
+the witness has been logging every single operation issued since primary
+disappeared, so witness can reply every op to primary and will be up to
+date w.r.t. all the operations executed</p>
+
+<ul>
+<li>efficiently bring primary up to speed</li>
+<li>the backup could do that too, but Harp is designed so that
+backup dumps the op logs to disk and witnesses keep the logs themselves
+so they can quickly send them to primary for reapplying
+<ul>
+<li>assumption that reapplying witness logs is faster than copying backup disk</li>
+<li>assumption that witness logs won't get too big</li>
+</ul></li>
+</ul></li>
+<li><p>The witnesses are one significant difference from Raft.</p></li>
+<li>The <code>b</code> witnesses do not ordinarily hear about operations or keep state.</li>
+<li>Why is that OK?
+<ul>
+<li><code>b+1</code> of <code>2b+1</code> do have state</li>
+<li>So any <code>b</code> failures leaves at least one live copy of state.</li>
+</ul></li>
+<li>Why are the <code>b</code> witnesses needed at all?
+<ul>
+<li>If <code>b</code> replicas with state do fail, witnesses give the required <code>b+1</code> majority.</li>
+<li>To ensure that only one partition operates -- no split brain.</li>
+</ul></li>
+<li>So, for a 3-server system, the witness is there to break ties about
+<ul>
+<li>which partition is allowed to operate when primary and backup are
+in different partitions. The partition with the witness wins.</li>
+</ul></li>
+</ul>
+
+<h4>Does primary need to send operations to witnesses?</h4>
+
+<ul>
+<li>The primary must collect ACKs from a majority of the <code>2b+1</code> for every r/w operation.
+<ul>
+<li>To ensure that it is still the primary -- still in the majority partition.</li>
+<li>To ensure that operation is on enough servers to intersect with any
+<ul>
+<li>future majority that forms a new view.</li>
+</ul></li>
+</ul></li>
+<li>If all backups are up, primary+backups are enough for that majority.</li>
+<li>If <code>m</code> backups are down:
+<ul>
+<li>Primary must talk to <code>m</code> "promoted" witnesses to get its majority for each op.</li>
+<li>Those witnesses must record the op, to ensure overlap with any
+<ul>
+<li>future majority.</li>
+</ul></li>
+<li>Thus each "promoted" witness keeps a log.</li>
+</ul></li>
+</ul>
+
+<h4>So in a 2b+1 system, a view always has b+1 servers that the primary</h4>
+
+<ul>
+<li>must contact for each op, and that store each op.</li>
+</ul>
+
+<p>Note: somewhat different from Raft</p>
+
+<p>Raft keeps sending each op to all servers, proceeds when majority answer
+    So leader must keep full log until failed server re-joins
+  Harp eliminates failed server from view, doesn't send to it
+    Only witness has to keep a big log; has special plan (ram, disk, tape).
+  The bigger issue is that it can take a lot of work to bring
+    a re-joining replica up to date; careful design is required.</p>
+
+<h4>What's the story about the UPS?</h4>
+
+<ul>
+<li>This is one of the most interesting aspects of Harp's design</li>
+<li>Each server's power cord is  plugged into a UPS</li>
+<li>UPS has enough battery to run server for a few minutes</li>
+<li>UPS tells server (via serial port) when main A/C power fails</li>
+<li>Server writes dirty FS blocks and Harp log to disk, then shuts down</li>
+</ul>
+
+<h4>What does the UPS buy for Harp?</h4>
+
+<ul>
+<li>Efficient protection against A/C power failure of ALL servers</li>
+<li>For failures of up to b servers, replication is enough</li>
+<li>If <em>all</em> servers failed and lost state, that's more than b failures,
+<ul>
+<li>so Harp has no guarantee (and indeed no state!)</li>
+</ul></li>
+<li>With UPS:
+<ul>
+<li>Each server can reply <em>without</em> writing disk!</li>
+<li>But still guarantees to retain latest state despite simultaneous power fail</li>
+</ul></li>
+<li>But note:
+<ul>
+<li>UPS does not protect against other causes of simultaneous failure</li>
+<li>e.g. bugs, earthquake</li>
+<li>Harp treats servers that re-start after UPS-protected crash differently
+<ul>
+<li>than those that re-start with crash that lost in-memory state</li>
+</ul></li>
+<li>Because the latter may have forgotten <em>committed</em> operations</li>
+</ul></li>
+<li>For independent failures Harp has powerful guarantees, for stuff like software
+bugs that will cause a cascade of crashes, it doesn't really have solutions</li>
+</ul>
+
+<p><strong>Larger point</strong>, faced by every fault-tolerant system</p>
+
+<ul>
+<li>Every replicated system tends to need to have a commit point</li>
+<li>Replicas <em>must</em> keep persistent state to deal w/ failure of all servers
+<ul>
+<li>Committed operations</li>
+<li>Latest view number, proposal number, &amp;c</li>
+</ul></li>
+<li>Must persist this state before replying</li>
+<li>Writing every commit to disk is very slow!
+<ul>
+<li>10 ms per disk write, so only 100 ops/second</li>
+</ul></li>
+<li>So there are a few common patterns:
+<ol>
+<li>Low throughput</li>
+<li>Batching, high delay
+<ul>
+<li>batch a lot of writes and do them all at the same time to amortize the cost of each write</li>
+<li>but now you need to make clients wait for their write to finish more
+<ul>
+<li>because they are also waiting for other clients' writes to finish</li>
+</ul></li>
+</ul></li>
+<li>Lossy or inconsistent recovery from simultaneous failure
+<ul>
+<li>no guarantees after crashes</li>
+</ul></li>
+<li>Batteries, flash, SSD w/ capacitor, &amp;c</li>
+</ol></li>
+</ul>
+
+<h4>Let's talk about Harp's log management and operation execution</h4>
+
+<ul>
+<li>Primary and backup must apply client operations to their state</li>
+<li>State here is a file system -- directories, file, owners, permissions, &amp;c</li>
+<li>Harp must mimic an ordinary NFS server to the client
+<ul>
+<li>i.e. not forget about ops for which it has sent a reply</li>
+</ul></li>
+</ul>
+
+<h4>What is in a typical log record?</h4>
+
+<ul>
+<li>Not just the client-issued op., like <code>chmod</code></li>
+</ul>
+
+<p>Log record stores:</p>
+
+<ul>
+<li>Client's NFS operation (write, mkdir, chmod, &amp;c)</li>
+<li>Shadow state: modified i-nodes and directory content <em>after</em> execution
+<ul>
+<li>(i.e. the results after executing the operation)</li>
+</ul></li>
+<li>Client RPC request ID, for duplicate detection
+<ul>
+<li>Primary might repeat an RPC if it thinks the backup has failed</li>
+</ul></li>
+<li>Reply to send to client, for duplicate detection</li>
+</ul>
+
+<h4>Why does Harp have so many log pointers?</h4>
+
+<ul>
+<li>FP most recent client request</li>
+<li>CP commit point (real in primary, latest heard in backup)</li>
+<li>AP highest update sent to disk</li>
+<li>LB disk has finished writing up to here</li>
+<li>GLB all nodes have completed disk up to here</li>
+</ul>
+
+<h4>Why the FP-CP gap?</h4>
+
+<ul>
+<li>So primary doesn't need to wait for ACKs from each backup
+<ul>
+<li>before sending next operation to backups</li>
+</ul></li>
+<li>Primary pipelines ops CP..FP to the backups.</li>
+<li>Higher throughput if concurrent client requests.</li>
+</ul>
+
+<h4>Why the AP-LB gap?</h4>
+
+<ul>
+<li>Allows Harp to issue many ops as disk writes before waiting for disk</li>
+<li>The disk is more efficient if it has lots of writes (e.g. arm scheduling)</li>
+</ul>
+
+<h4>What is the LB?</h4>
+
+<ul>
+<li>This replica has everything <code>&lt;= LB</code> on disk.</li>
+<li>So it won't need those log records again.</li>
+</ul>
+
+<h4>Why the LB-GLB gap?</h4>
+
+<ul>
+<li>GLB is min(all servers' LBs).</li>
+<li>GLB is earliest record that <em>some</em> server might need if it loses memory.</li>
+</ul>
+
+<h4>When does Harp execute a client operation?</h4>
+
+<p>There are two answers!</p>
+
+<ol>
+<li>When operation arrives, primary figures out exactly what should happen.
+<ul>
+<li>Produces resulting on-disk bytes for modified i-nodes, directories, &amp;c.</li>
+<li>This is the shadow state.</li>
+<li>This happens before the CP, so the primary must consult recent
+operations in the log to find the latest file system state.</li>
+</ul></li>
+<li>After the operation commits, primary and backup can apply it to
+ their file systems.
+<ul>
+<li>They copy the log entry's shadow state to the file system;</li>
+<li>they do not really execute the operation.</li>
+<li>And now the primary can reply to the client's RPC.</li>
+</ul></li>
+</ol>
+
+<h4>Why does Harp split execution in this way?</h4>
+
+<ul>
+<li>If a server crashes and reboots, it is brought up to date by replaying
+log entries it might have missed. Harp can't know exactly what the
+last pre-crash operation was, so Harp may repeat some. It's not
+correct to fully execute some operations twice, e.g. file append.</li>
+<li>So Harp log entries contain the <em>resulting</em> state, which is what's applied.</li>
+</ul>
+
+<p>Append example:</p>
+
+<pre><code>                         /---&gt; picks up the modified inode
+                        /
+ --------------------------------
+      |   Append1   |  Append2  | 
+ ---- * -------------------------
+     / \        \
+      |          \-&gt; new inode stored here
+     CP
+</code></pre>
+
+<p>If backup crashes after it writes A1 to disk but before replying to primary, when
+the backup reboots there's no obvious way of telling whether it executed A1. As
+a result, it has to reexecute it. Thus, these log records have to be "repeatable."</p>
+
+<p><em>Actually,</em> a lot of replication systems have to cope with this, and this is one
+way to deal with it. It also illustrates how non-straightforward replication can be.</p>
+
+<ul>
+<li>Harp needs to be aware of FS-level inodes for instance</li>
+</ul>
+
+<h4>The point: multiple replay means replication isn't transparent to the service.</h4>
+
+<ul>
+<li>Service must be modified to generate and accept the state
+modifications that result from client operations.</li>
+<li>In general, when applying replication to existing services,
+the service must be modified to cope with multiple replay.</li>
+</ul>
+
+<h4>Can Harp primary execute read-only operations w/o replicating to backups?</h4>
+
+<ul>
+<li>e.g. reading a file.</li>
+<li>Would be faster -- after all, there's no new data to replicate.</li>
+<li>The reason we forward read only operations to backup is to make sure
+we find out if we were partitioned and 1000 ops were executed that
+we don't know about: make sure we don't reply with an old write of 
+the data we are reading</li>
+<li>What's the danger?</li>
+<li>Harp's idea: leases</li>
+<li>Backups promise not to form a new view for some time.
+<ul>
+<li>(i.e. not to process any ops as a primary)</li>
+</ul></li>
+<li>Primary can execute read-only ops locally for that time minus slop.
+<ul>
+<li>because it knows backup won't execute ops as primary during that
+time (backup promised this!)</li>
+</ul></li>
+<li>Depends on reasonably <em>synchronized clocks</em>:
+<ul>
+<li>Robert Morris: "Not really happy about this."</li>
+<li>Primary and backup must have bounded disagreement
+on how fast time passes.</li>
+<li>This really requires a bounded frequency skew
+<ul>
+<li>Apparently hardware is really bad at providing this</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h4>What state should primary use when executing a read-only operation?</h4>
+
+<ul>
+<li>Does it have to wait for all previously arrived operations to commit?
+<ul>
+<li>No! That would be almost as slow as committing the read-only op.</li>
+</ul></li>
+<li>Should it look at state as of operation at FP, i.e. latest r/w operation?
+<ul>
+<li>No! That operation has not committed; not allowed to reveal its effects.</li>
+</ul></li>
+<li>Thus Harp executes read-only ops with state as of CP.</li>
+<li>What if client sends a WRITE and (before WRITE finishes) a READ of same data?
+<ul>
+<li>READ may see data <em>before</em> the WRITE!</li>
+<li>Why is that OK?</li>
+</ul></li>
+</ul>
+
+<h4>How does failure recovery work?</h4>
+
+<ul>
+<li>I.e. how does Harp recover replicated state during view change?</li>
+</ul>
+
+<p>Setup for the following scenarios:</p>
+
+<p>5 servers: S1 is usually primary, S2+S3 are backups, S4+S5 witnesses</p>
+
+<p>Scenario:</p>
+
+<pre><code>  S1+S2+S3; then S1 crashes
+  S2 is primary in new view (and S4 is promoted)
+  Will S2 have every committed operation?
+  Will S2 have every operation S1 received?
+  Will S2's log tail be the same as S3's log tail?
+  How far back can S2 and S3 log tail differ?
+  How to cause S2 and S3's log to be the same?
+    Must commit ops that appeared in both S2+S3 logs
+    What about ops that appear in only one log?
+      In this scenario, can discard since could not have committed
+      But in general committed op might be visible in just one log
+  From what point does promoted witness have to start keeping a log?
+</code></pre>
+
+<h4>What if S1 crashed just before replying to a client?</h4>
+
+<ul>
+<li>Will the client ever get a reply?</li>
+</ul>
+
+<p>After S1 recovers, with intact disk, but lost memory.</p>
+
+<ul>
+<li>It will be primary, but Harp can't immediately use its state or log.
+<ul>
+<li>Unlike Raft, where leader only elected if it has the best log.</li>
+<li>Harp must replay log from promoted witness (S4)</li>
+</ul></li>
+<li>Could S1 have executed an op just before crashing
+<ul>
+<li>that the replicas didn't execute after taking over?</li>
+<li>No, execution up to CP only, and CP is safe on S2+S3.</li>
+</ul></li>
+</ul>
+
+<p>New scenario: S2 and S3 are partitioned (but still alive)</p>
+
+<ul>
+<li>Can S1+S4+S5 continue to process operations?
+<ul>
+<li>Yes, promoted witnesses S4+S5</li>
+</ul></li>
+<li>S4 moves to S2/S3 partition</li>
+<li>Can S1+S5 continue?
+<ul>
+<li>No, primary S1 doesn't get enough backup ACKs</li>
+</ul></li>
+<li>Can S2+S3+S4 continue?
+<ul>
+<li>Yes, new view copies log entries S4->S2, S4->S3, now S2 is primary</li>
+</ul></li>
+<li>Note:
+<ul>
+<li>New primary was missing many committed operations</li>
+<li>In general some <em>committed</em> operations may be on only one server</li>
+</ul></li>
+</ul>
+
+<p>New scenario: S2 and S3 are partitioned (but still alive)</p>
+
+<ul>
+<li>S4 crashes, loses memory contents, reboots in S2/S3 partition</li>
+<li>Can they continue?
+<ul>
+<li>Only if there wasn't another view that formed and committed more ops</li>
+</ul></li>
+<li>How to detect?
+<ul>
+<li>Depends on what S4's on-disk view # says.</li>
+<li>OK if S4's disk view # is same as S2+S3's.
+<ul>
+<li>No new views formed.</li>
+<li>S2+S3 must have heard about all committed ops in old view.</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h4>Everybody (S1-5) suffers a power failure.</h4>
+
+<ul>
+<li>S4 disk and memory are lost, but it does re-start after repair.</li>
+<li>S1 and S5 never recover.</li>
+<li>S2 and S3 save everything on disk, re-start just fine.</li>
+<li>Can S2+S3+S4 continue?</li>
+<li>(harder than it looks)
+<ul>
+<li>Believe the answer is "No": cannot be sure what state S4 had before failure.</li>
+<li>Might have formed a new view with S1+S5, and committed some ops.
+<ul>
+<li>Can S2 and S3 know about the previous view? Not always.</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h4>When can Harp form a new view?</h4>
+
+<ol>
+<li>No other view possible.</li>
+<li>Know view # of most recent view.</li>
+<li><p>Know all ops from most recent view.</p></li>
+<li><p>(1) is true if you have n+1 nodes in new view.</p></li>
+<li>(2) true if you have n+1 nodes that did not lose view # since last view.
+<ul>
+<li>View # stored on disk, so they just have to know disk is OK.</li>
+<li>One of them <em>must</em> have been in the previous view.</li>
+<li>So just take the highest view number.</li>
+</ul></li>
+<li>And #3?
+<ul>
+<li>Need a disk image, and a log, that together reflect all operations 
+through the end of the previous view.</li>
+<li>Perhaps from different servers, e.g. log from promoted witness,
+disk from backup that failed multiple views ago.</li>
+</ul></li>
+</ol>
+
+<h4>Does Harp have performance benefits?</h4>
+
+<ul>
+<li>In Fig 5-1, why is Harp <em>faster</em> than non-replicated server?</li>
+<li>How much win would we expect by substituting RPC for disk operations?</li>
+</ul>
+
+<h4>Why graph x=load y=response-time?</h4>
+
+<ul>
+<li>Why does this graph make sense?</li>
+<li>Why not just graph total time to perform X operations?</li>
+<li>One reason is that systems sometimes get more/less efficient w/ high load.</li>
+<li>And we care a lot how they perform w/ overload.</li>
+</ul>
+
+<h4>Why does response time go up with load?</h4>
+
+<ul>
+<li>Why first gradual...
+<ul>
+<li>Queuing and random bursts?</li>
+<li>And some ops more expensive than others, cause temp delays.</li>
+</ul></li>
+<li>Then almost straight up?
+<ul>
+<li>Probably has hard limits, like disk I/Os per second.</li>
+<li>Queue length diverges once offered load > capacity</li>
+</ul></li>
+</ul>
