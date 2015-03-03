@@ -76,7 +76,8 @@ The scale of compilation matters.
 
 ### Readability and simplicity
 
- - Dick Gabriel quote:
+ - Dick Gabriel quote: 
+ > "I'm always delighted by the light touch and stillness of early programming languages. Not much text; a lot gets done. Old programs read like quiet conversations between a well-spoken research worker and a well-studied mechanical colleague, not as a debate with a compiler. Who'd have guessed sophistication bought such noise?"
  - Simplify syntax
  - Avoid cleverness: ternary operators, macros
  - Don't let code writing be like "arguing with your compiler"
