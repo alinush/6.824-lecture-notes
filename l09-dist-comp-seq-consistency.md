@@ -234,7 +234,10 @@ Scenario 1: M0 has writeable copy, M1 wants to read
        M0 has it for R/W (see invariant described earlier)
   1. M1 sends RQ to MGR
   2. MGR sends RF to M0, MGR adds M1 to `copy_set`
-     + **TODO:** What is `copy_set`?
+     + What is `copy_set`?
+     + "The `copy_set` field lists all processors that have copies of the page. 
+       This allows an invalidation operation to be performed without using
+       broadcast."
   3. M0 marks page as $access = read$, sends RD to M1
   5. M1 marks $access = read$, sends RC to MGR
 
@@ -361,10 +364,10 @@ Paper intro says DSM subsumes RPC -- is that true?
 Known problems in Section 3.1 pseudo-code
 
  - Fault handlers must wait for owner to send `p` before confirming to manager
- - Deadlock if owner has page r/o and takes write fault
+ - Deadlock if owner has page R/O and takes write fault
    + Worrisome that no clear order `ptable[p].lock` vs `info[p].lock`
    + TODO: Whaaaat?
- - Write server / manager must set owner=request_node
+ - Write server / manager must set `owner = request_node`
  - Manager parts of fault handlers don't ask owner for the page
  - Does processing of the invalidate request hold `ptable[p].lock?`
    + probably can't -- deadlock

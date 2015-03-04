@@ -332,7 +332,10 @@ M0 has it for R/W (see invariant described earlier)</li>
 <li>M1 sends RQ to MGR</li>
 <li>MGR sends RF to M0, MGR adds M1 to <code>copy_set</code>
 <ul>
-<li><strong>TODO:</strong> What is <code>copy_set</code>?</li>
+<li>What is <code>copy_set</code>?</li>
+<li>"The <code>copy_set</code> field lists all processors that have copies of the page. 
+This allows an invalidation operation to be performed without using
+broadcast."</li>
 </ul></li>
 <li>M0 marks page as $access = read$, sends RD to M1</li>
 <li>M1 marks $access = read$, sends RC to MGR</li>
@@ -519,12 +522,12 @@ M0 has it for R/W (see invariant described earlier)</li>
 
 <ul>
 <li>Fault handlers must wait for owner to send <code>p</code> before confirming to manager</li>
-<li>Deadlock if owner has page r/o and takes write fault
+<li>Deadlock if owner has page R/O and takes write fault
 <ul>
 <li>Worrisome that no clear order <code>ptable[p].lock</code> vs <code>info[p].lock</code></li>
 <li>TODO: Whaaaat?</li>
 </ul></li>
-<li>Write server / manager must set owner=request_node</li>
+<li>Write server / manager must set <code>owner = request_node</code></li>
 <li>Manager parts of fault handlers don't ask owner for the page</li>
 <li>Does processing of the invalidate request hold <code>ptable[p].lock?</code>
 <ul>
