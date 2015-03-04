@@ -1,25 +1,23 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
-<head>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-  <meta http-equiv="Content-Style-Type" content="text/css" />
-  <meta name="generator" content="pandoc" />
-  <title></title>
-  <style type="text/css">code{white-space: pre;}</style>
-</head>
-<body>
-<h1 id="lecture-2-infrastructure-rpc-and-threads">6.824 2015 Lecture 2: Infrastructure: RPC and threads</h1>
-<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the 6.824 <a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from Spring 2015.</p>
-<h2 id="remote-procedure-call-rpc">Remote Procedure Call (RPC)</h2>
+<h1>6.824 2015 Lecture 2: Infrastructure: RPC and threads</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the 6.824 
+<a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from Spring 2015.</p>
+
+<h2>Remote Procedure Call (RPC)</h2>
+
 <ul>
 <li>A key piece of distrib sys machinery; all the labs use RPC</li>
-<li><em>Goal:</em> easy-to-program network communication</li>
+<li><em>Goal:</em> easy-to-program network communication
+<ul>
 <li>hides most details of client/server communication</li>
 <li>client call is much like ordinary procedure call</li>
 <li>server handlers are much like ordinary procedures</li>
+</ul></li>
 <li>RPC is widely used!</li>
 </ul>
+
 <p>RPC ideally makes net communication look just like an ordinary <em>function call</em>:</p>
+
 <pre><code>  Client
   ------
     z = fn(x, y)
@@ -29,86 +27,129 @@
     fn(x, y) {
       compute
       return z
-    }</code></pre>
+    }
+</code></pre>
+
 <p>RPC aims for this level of transparency</p>
-<h3 id="rpc-message-diagram">RPC message diagram</h3>
+
+<h3>RPC message diagram</h3>
+
 <pre><code>  Client                      Server
   ------                      ------
 
-          &quot;fn&quot;, x, y
+          "fn", x, y
   request ----------&gt;
 
                           compute fn(x, y)
 
             z = fn(x, y)
-           &lt;------------- response</code></pre>
-<h3 id="software-structure">Software structure</h3>
+           &lt;------------- response
+</code></pre>
+
+<h3>Software structure</h3>
+
 <pre><code>   Client             Server
    ------             ------
 
   client app         handlers
     stubs           dispatcher
    RPC lib           RPC lib
-     net &lt;-----------&gt; net</code></pre>
-<p><em>Stubs</em> are sort of the fake client-side functions that look like the real <code>f(x, y)</code> but they just take care of packaging the arguments, sending them over the network and ask the server to compute <code>f(x, y)</code>. The stub can then receive the result over the network and return the value to the client code.</p>
+     net &lt;-----------&gt; net
+</code></pre>
+
+<p><em>Stubs</em> are sort of the fake client-side functions that look like the real <code>f(x, y)</code> but
+they just take care of packaging the arguments, sending them over the
+network and ask the server to compute <code>f(x, y)</code>. The stub can then 
+receive the result over the network and return the value to the client 
+code.</p>
+
 <p>Examples from lab 1:</p>
+
 <ul>
 <li><code>DoJob</code></li>
 <li><code>Register</code></li>
 </ul>
-<h3 id="a-few-details-of-rpc">A few details of RPC</h3>
+
+<h3>A few details of RPC</h3>
+
 <ul>
-<li><em>Marshalling:</em> format data into packets</li>
+<li><em>Marshalling:</em> format data into packets
+<ul>
 <li>Tricky for arrays, pointers, objects, etc.</li>
-<li>Go’s RPC library is pretty powerful!</li>
+<li>Go's RPC library is pretty powerful!</li>
 <li>some things you cannot pass/marshall: e.g., channels, functions</li>
-<li><em>Binding:</em> how does client know who to talk to?</li>
-<li>Might be a name service – e.g. DNS</li>
-<li><em>Threads:</em></li>
+</ul></li>
+<li><em>Binding:</em> how does client know who to talk to?
+<ul>
+<li>Might be a name service -- e.g. DNS</li>
+</ul></li>
+<li><em>Threads:</em>
+<ul>
 <li>Client often has many threads, so <code>&gt; 1</code> call outstanding, match up replies to calls</li>
 <li>Handlers may be slow, so server often runs each in a thread</li>
+</ul></li>
 </ul>
+
 <p><em>RPC problem:</em> what to do about failures?</p>
+
 <ul>
-<li>e.g. lost packets, broken network, crashed servers, slow servers</li>
+<li>e.g. lost packets, broken network, crashed servers, slow servers</li>
 </ul>
-<p>What does a failure look like to the client’s RPC library?</p>
+
+<p>What does a failure look like to the client's RPC library?</p>
+
 <ul>
-<li>It never sees a response from the server</li>
+<li>It never sees a response from the server
+<ul>
 <li>Maybe packet was lost</li>
-<li>It does <em>not</em> know if the server saw the request!</li>
+</ul></li>
+<li>It does <em>not</em> know if the server saw the request!
+<ul>
 <li>Maybe server/net failed just before sending reply</li>
+</ul></li>
 </ul>
-<h3 id="simplest-scheme-at-least-once-behavior">Simplest scheme: <em>“at least once”</em> behavior</h3>
+
+<h3>Simplest scheme: <em>"at least once"</em> behavior</h3>
+
 <pre><code>    while true
         send req
         wait up to 10 seconds for reply
         if reply arrives
             return reply
         else
-            continue</code></pre>
+            continue
+</code></pre>
+
 <ul>
 <li>RPC client library waits for response for a while</li>
 <li>If none arrives, re-send the request</li>
 <li>Do this a few times</li>
-<li>Still no response – return an error to the application</li>
+<li>Still no response -- return an error to the application</li>
 </ul>
-<p><strong>Q:</strong> is “at least once” easy for applications to cope with?</p>
+
+<p><strong>Q:</strong> is "at least once" easy for applications to cope with?</p>
+
 <p>Simple problem w/ at least once:</p>
+
 <ul>
 <li>Occurs with requests that are <strong>not</strong> <em>side-effect free</em></li>
-<li>Client sends <em>“deduct $10 from bank account”</em> twice because it did not hear back for the first one</li>
+<li>Client sends <em>"deduct $10 from bank account"</em> twice because
+it did not hear back for the first one</li>
 </ul>
+
 <p>More subtle problem: what can go wrong with this client program?</p>
+
 <ul>
-<li><code>Put(&quot;k&quot;, &quot;v&quot;)</code> overwrites the value at <code>k</code> with <code>v</code></li>
-<li><code>Put(&quot;key&quot;, &quot;value1&quot;)</code> – an RPC to set key’s value in a DB server</li>
-<li><code>Put(&quot;key&quot;, &quot;value2&quot;)</code> – client then does a 2nd Put to same key</li>
+<li><code>Put("k", "v")</code> overwrites the value at <code>k</code> with <code>v</code></li>
+<li><code>Put("key", "value1")</code> -- an RPC to set key's value in a DB server</li>
+<li><code>Put("key", "value2")</code> -- client then does a 2nd Put to same key</li>
 </ul>
+
 <p>Example:</p>
+
 <pre><code>Client                              Server
 ------                              ------
-                
+
 put k, 10
             ----\
                  \
@@ -119,192 +160,295 @@ put k, 20   ---------------------&gt;  k &lt;- 20
 get k       ---------------------&gt;
 
                 10
-            &lt;---------------------</code></pre>
-<p><strong>Note:</strong> This situation where client sends a request, server does some work and replies, but the reply is lost occurs frequently and will come up a lot in labs.</p>
+            &lt;---------------------
+</code></pre>
+
+<p><strong>Note:</strong> This situation where client sends a request, server does some work and 
+replies, but the reply is lost occurs frequently and will come up a lot
+in labs.</p>
+
 <p>Is at-least-once ever OK?</p>
+
 <ul>
-<li>Yes: if it’s OK to repeat operations, e.g. read-only op</li>
-<li>Yes: if application has its own plan for detecting duplicates</li>
+<li>Yes: if it's OK to repeat operations, e.g. read-only op</li>
+<li>Yes: if application has its own plan for detecting duplicates
+<ul>
 <li>which you will need for Lab 1</li>
+</ul></li>
 </ul>
-<h3 id="better-rpc-behavior-at-most-once">Better RPC behavior: <em>“at most once”</em></h3>
+
+<h3>Better RPC behavior: <em>"at most once"</em></h3>
+
 <ul>
-<li><em>Idea:</em> server RPC code detects duplicate requests</li>
+<li><em>Idea:</em> server RPC code detects duplicate requests
+<ul>
 <li>returns previous reply instead of re-running handler</li>
-<li>Client includes <em>unique ID (XID)</em> with each request</li>
+</ul></li>
+<li>Client includes <em>unique ID (XID)</em> with each request
+<ul>
 <li>uses same XID for re-send</li>
+</ul></li>
 <li>Server checks if XID has been seen before</li>
 </ul>
+
 <p>Example:</p>
+
 <pre><code>    if seen[xid]:
       r = old[xid]
     else
       r = handler()
       old[xid] = r
-      seen[xid] = true</code></pre>
+      seen[xid] = true
+</code></pre>
+
 <p>Some at-most-once complexities</p>
+
 <ul>
-<li>How to ensure XID is unique?</li>
+<li>How to ensure XID is unique?
+<ul>
 <li>big random number?</li>
 <li>combine unique client ID (ip address?) with sequence #?</li>
-<li>Server must eventually discard info about old RPCs</li>
+</ul></li>
+<li>Server must eventually discard info about old RPCs
+<ul>
 <li>When is discard safe?</li>
 <li><em>Idea:</em>
 <ul>
 <li>unique client IDs</li>
 <li>per-client RPC sequence numbers</li>
-<li>client includes <em>“seen all replies <code>&lt;= X</code>”</em> with every RPC much like TCP sequence #s and ACKs</li>
-<li>or only allow client one outstanding RPC at a time s.t. arrival of <code>seq+1</code> allows server to discard all <code>&lt;= seq</code></li>
-<li>or client agrees to keep retrying for <code>&lt; 5</code> minutes server discards after 5+ minutes</li>
+<li>client includes <em>"seen all replies <code>&lt;= X</code>"</em> with every RPC
+much like TCP sequence #s and ACKs</li>
+<li>or only allow client one outstanding RPC at a time s.t.
+arrival of <code>seq+1</code> allows server to discard all <code>&lt;= seq</code></li>
+<li>or client agrees to keep retrying for <code>&lt; 5</code> minutes
+server discards after 5+ minutes</li>
 </ul></li>
-<li>How to handle duplicate request while original is still executing?</li>
-<li>Server doesn’t know reply yet; don’t want to run twice</li>
-<li><em>Idea:</em> “pending” flag per executing RPC; wait or ignore</li>
-</ul>
-<p>What if an at-most-once server crashes?</p>
+</ul></li>
+<li>How to handle duplicate request while original is still executing?
 <ul>
-<li>if at-most-once duplicate info in memory, server will forget</li>
+<li>Server doesn't know reply yet; don't want to run twice</li>
+<li><em>Idea:</em> "pending" flag per executing RPC; wait or ignore</li>
+</ul></li>
+</ul>
+
+<p>What if an at-most-once server crashes?</p>
+
+<ul>
+<li>if at-most-once duplicate info in memory, server will forget
+<ul>
 <li>and accept duplicate requests</li>
+</ul></li>
 <li>maybe it should write the duplicate info to disk?</li>
 <li>maybe replica server should also replicate duplicate info?</li>
 </ul>
-<h3 id="what-about-exactly-once">What about <em>“exactly once”</em>?</h3>
+
+<h3>What about <em>"exactly once"</em>?</h3>
+
 <ul>
 <li><em>at-most-once</em> semantics plus unbounded retries plus fault-tolerant service</li>
 </ul>
-<h3 id="go-rpc-is-at-most-once">Go RPC is “at-most-once”</h3>
+
+<h3>Go RPC is "at-most-once"</h3>
+
 <ul>
 <li>open TCP connection</li>
 <li>write request to TCP connection</li>
-<li>TCP may retransmit, but server’s TCP will filter out duplicates</li>
-<li>no retry in Go code (i.e. will NOT create 2nd TCP connection)</li>
-<li>Go RPC code returns an error if it doesn’t get a reply</li>
+<li>TCP may retransmit, but server's TCP will filter out duplicates</li>
+<li>no retry in Go code (i.e. will NOT create 2nd TCP connection)</li>
+<li>Go RPC code returns an error if it doesn't get a reply
+<ul>
 <li>perhaps after a timeout (from TCP)</li>
-<li>perhaps server didn’t see request</li>
+<li>perhaps server didn't see request</li>
 <li>perhaps server processed request but server/net failed before reply came back</li>
+</ul></li>
 </ul>
-<h3 id="gos-at-most-once-rpc-isnt-enough-for-lab-1">Go’s at-most-once RPC isn’t enough for Lab 1</h3>
+
+<h3>Go's at-most-once RPC isn't enough for Lab 1</h3>
+
 <ul>
 <li>it only applies to a single RPC call</li>
-<li>if worker doesn’t respond, the master re-sends to it to another worker</li>
+<li>if worker doesn't respond, the master re-sends to it to another worker
+<ul>
 <li>but original worker may have not failed, and is working on it too</li>
-<li>Go RPC can’t detect this kind of duplicate</li>
+</ul></li>
+<li>Go RPC can't detect this kind of duplicate
+<ul>
 <li>No problem in lab 1, which handles at application level</li>
 <li>In lab 2 you will have to protect against these kinds of duplicates</li>
+</ul></li>
 </ul>
-<h2 id="threads">Threads</h2>
+
+<h2>Threads</h2>
+
 <ul>
 <li>threads are a fundamental server structuring tool</li>
-<li>you’ll use them a lot in the labs</li>
+<li>you'll use them a lot in the labs</li>
 <li>they can be tricky</li>
-<li>useful with RPC</li>
+<li>useful with RPC </li>
 <li>called goroutines in Go</li>
 </ul>
-<p>Thread = “thread of control”</p>
+
+<p>Thread = "thread of control"</p>
+
 <ul>
 <li>threads allow one program to (logically) do many things at once</li>
 <li>the threads share memory</li>
-<li>each thread includes some per-thread state:</li>
-<li>program counter, registers, stack</li>
-</ul>
-<h3 id="threading-challenges">Threading challenges:</h3>
+<li>each thread includes some per-thread state:
 <ul>
-<li>sharing data between thread</li>
+<li>program counter, registers, stack</li>
+</ul></li>
+</ul>
+
+<h3>Threading challenges:</h3>
+
+<ul>
+<li>sharing data between thread 
+<ul>
 <li>what if two threads modify same variable at same time?</li>
 <li>what if one thread reads data another thread is changing?</li>
 <li>these problems are often called <em>races</em></li>
 <li>need to protect invariants on shared data (Go: <em>mutex</em>)</li>
-<li><em>coordination</em> between threads (Go: <em>channels</em>)</li>
-<li>e.g. wait for all Map threads to finish</li>
-<li><em>deadlocks</em></li>
+</ul></li>
+<li><em>coordination</em> between threads (Go: <em>channels</em>)
+<ul>
+<li>e.g. wait for all Map threads to finish</li>
+</ul></li>
+<li><em>deadlocks</em> 
+<ul>
 <li>thread 1 is waiting for thread 2</li>
 <li>thread 2 is waiting for thread 1</li>
 <li>easy detectable (unlike races)</li>
-<li>lock granularity</li>
+</ul></li>
+<li>lock granularity
+<ul>
 <li>goarse-grained <code>-&gt;</code> little concurrency/parallelism</li>
 <li>fine-grained <code>-&gt;</code> lots of concurrency, but race and deadlocks</li>
-<li>let’s look at a toy RPC package to illustrate these problems</li>
+</ul></li>
+<li>let's look at a toy RPC package to illustrate these problems</li>
 </ul>
-<h2 id="look-at-todays-handout-l-rpc.go">Look at today’s handout – <a href="code/l-rpc.go">l-rpc.go</a></h2>
+
+<h2>Look at today's handout -- <a href="code/l-rpc.go">l-rpc.go</a></h2>
+
 <p>Get it <a href="code/l-rpc.go">here</a>.</p>
+
 <ul>
-<li>it’s a toy RPC system</li>
+<li>it's a toy RPC system</li>
 <li>illustrates threads, mutexes, channels</li>
-<li>it’s a toy</li>
+<li>it's a toy
+<ul>
 <li>assumes connection already open</li>
 <li>only supports an integer arg, integer reply</li>
-<li>doesn’t deal with errors</li>
+<li>doesn't deal with errors</li>
+</ul></li>
 </ul>
-<h4 id="struct-toyclient"><code>struct ToyClient</code></h4>
+
+<h4><code>struct ToyClient</code></h4>
+
 <ul>
-<li>client RPC state</li>
+<li>client RPC state </li>
 <li>mutex per <code>ToyClient</code></li>
-<li>connection to server (e.g. TCP socket)</li>
-<li>xid – unique ID per call, to match reply to caller</li>
-<li><code>pending[]</code> – multiple threads may call, need to find them</li>
+<li>connection to server (e.g. TCP socket)</li>
+<li>xid -- unique ID per call, to match reply to caller</li>
+<li><code>pending[]</code> -- multiple threads may call, need to find them
+<ul>
 <li>channel on which caller is waiting</li>
+</ul></li>
 </ul>
-<h4 id="call"><code>Call()</code></h4>
+
+<h4><code>Call()</code></h4>
+
 <ul>
 <li>application calls <code>reply := client.Call(procNum, arg)</code></li>
 <li><code>procNum</code> indicates what function to run on server</li>
-<li><code>WriteRequest</code> knows the format of an RPC msg</li>
+<li><code>WriteRequest</code> knows the format of an RPC msg
+<ul>
 <li>basically just the arguments turned into bits in a packet</li>
+</ul></li>
 <li><strong>Q:</strong> why the mutex in <code>Call()</code>? what does <code>mu.Lock()</code> do?</li>
-<li><strong>Q:</strong> could we move <code>xid := tc.xid</code> outside the critical section?</li>
+<li><strong>Q:</strong> could we move <code>xid := tc.xid</code> outside the critical section?
+<ul>
 <li>after all, we are not changing anything</li>
 <li>[See diagram below]</li>
-<li><strong>Q:</strong> do we need to <code>WriteRequest</code> inside the critical section?</li>
+</ul></li>
+<li><strong>Q:</strong> do we need to <code>WriteRequest</code> inside the critical section?
+<ul>
 <li>note: Go says you are responsible for preventing concurrent map ops</li>
-<li>that’s one reason the update to pending is locked</li>
+<li>that's one reason the update to pending is locked</li>
+</ul></li>
 </ul>
+
 <p>Diagram:</p>
-<h4 id="listener"><code>Listener()</code></h4>
+
+<h4><code>Listener()</code></h4>
+
 <ul>
 <li>runs as a background thread</li>
 <li>what is <code>&lt;-</code> doing?</li>
 <li>not quite right that it may need to wait on chan for caller</li>
 </ul>
-<h4 id="back-to-call">Back to <code>Call()</code>…</h4>
+
+<h4>Back to <code>Call()</code>...</h4>
+
 <p><strong>Q:</strong> what if reply comes back very quickly?</p>
+
 <ul>
 <li>could <code>Listener()</code> see reply before <code>pending[xid]</code> entry exists?</li>
 <li>or before caller is waiting for channel?</li>
 </ul>
+
 <p><strong>Q:</strong> should we put <code>reply := &lt;-done</code> inside the critical section?</p>
+
 <ul>
 <li>why is it OK outside? after all, two threads use it.</li>
 </ul>
+
 <p><strong>Q:</strong> why mutex per <code>ToyClient</code>, rather than single mutex per whole RPC pkg?</p>
-<h4 id="servers-dispatcher">Server’s <code>Dispatcher()</code></h4>
+
+<h4>Server's <code>Dispatcher()</code></h4>
+
 <ul>
-<li>note that the Dispatcher echos the xid back to the client</li>
+<li>note that the Dispatcher echos the xid back to the client
+<ul>
 <li>so that <code>Listener</code> knows which Call to wake up</li>
+</ul></li>
 <li><strong>Q:</strong> why run the handler in a separate thread?</li>
 <li><strong>Q:</strong> is it a problem that the dispatcher can reply out of order?</li>
 </ul>
-<h4 id="main"><code>main()</code></h4>
+
+<h4><code>main()</code></h4>
+
 <ul>
 <li>note registering handler in <code>handlers[]</code></li>
 <li>what will the program print?</li>
 </ul>
+
 <p>When to use shared memory (and locks) vs when to use channels?</p>
+
 <ul>
 <li>here is my opinion</li>
-<li>use channels when you want one thread to explicitly wait for another</li>
+<li>use channels when you want one thread to explicitly wait for another
+<ul>
 <li>often wait for a result, or wait for the next request</li>
-<li>e.g. when client <code>Call()</code> waits for <code>Listener()</code></li>
-<li>use shared memory and locks when the threads are not intentionally</li>
+<li>e.g. when client <code>Call()</code> waits for <code>Listener()</code></li>
+</ul></li>
+<li>use shared memory and locks when the threads are not intentionally
+<ul>
 <li>directly interacting, but just happen to r/w the same data</li>
-<li>e.g. when <code>Call()</code> uses <code>tc.xid</code></li>
+<li>e.g. when <code>Call()</code> uses <code>tc.xid</code></li>
+</ul></li>
 </ul>
-<p>Go’s “memory model” requires explicit synchronization to communicate!</p>
+
+<p>Go's "memory model" requires explicit synchronization to communicate!</p>
+
 <p>This code is not correct:</p>
+
 <pre><code>    var x int
     done := false
     go func() { x = f(...); done = true }
-    while done == false { }</code></pre>
-<p>It’s very tempting to write, but the Go spec says it’s undefined use a channel or <code>sync.WaitGroup</code> instead</p>
+    while done == false { }
+</code></pre>
+
+<p>It's very tempting to write, but the Go spec says it's undefined
+use a channel or <code>sync.WaitGroup</code> instead</p>
+
 <p>Study the Go tutorials on <em>goroutines</em> and <em>channels</em>.</p>
-</body>
-</html>
