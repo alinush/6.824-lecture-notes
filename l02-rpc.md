@@ -244,9 +244,9 @@ Thread = "thread of control"
    + fine-grained `->` lots of concurrency, but race and deadlocks
  - let's look at a toy RPC package to illustrate these problems
 
-Look at today's handout -- `l-rpc.go`
+Look at today's handout -- [l-rpc.go](code/l-rpc.go)
 -------------------------------------
-Get it [here](l-rpc.go).
+Get it [here](code/l-rpc.go).
 
  - it's a toy RPC system
  - illustrates threads, mutexes, channels

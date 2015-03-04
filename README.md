@@ -11,3 +11,7 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
    + [Paxos algorithm description](paxos-algorithm.html)
  * Lecture 6: [Raft](l06-raft.html): Raft, a more understandable consensus algorithm
  * Lecture 7: **Google Go** _guest lecture_ by Russ Cox
+ * Lecture 8: [Harp](l08-harp.html): distributed file system
+ * Lecture 9: [IVY](l09-dist-comp-seq-consistency.html): Ivy, a distributed shared memory system
+
+**TODO:** add papers

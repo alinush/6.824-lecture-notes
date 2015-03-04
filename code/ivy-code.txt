@@ -1,0 +1,58 @@
+This is a copy of the code in Section 3.1 of Li and Hudak's Memory
+Coherence in Shared Virtual Memory Systems (1986), somewhat simplified
+and clarified. We've deleted the code for the case in which the
+manager takes faults -- in this version, the manager does not run
+application code. Messages are delivered reliably. There are no
+failures.
+
+ReadFaultHandler(PageNumber p):
+  lock(ptable[p].lock)
+  ask manager for read access to p [RQ]
+  wait for someone to send me p's content [RD]
+  ptable[p].access = read
+  send confirmation to manager [RC]
+  unlock(ptable[p].lock)
+
+ReadServer(PageNumber p, MachineID request_node):
+  lock(ptable[p].lock)
+  if I am owner of p:
+    ptable[p].access = read
+    send copy of p to request_node [RD]
+  unlock(ptable[p].lock)
+
+  if I am manager:
+    lock(info[p].lock)
+    info[p].copy_set |= request_node
+    ask info[p].owner to send copy of p to request_node [RF]
+    wait for confirmation from request_node [RC]
+    unlock(info[p].lock)
+
+WriteFaultHandler(PageNumber p):
+  lock(ptable[p].lock)
+  ask manager for write access to p [WQ]
+  wait for someone to send me p's content [WD]
+  ptable[p].access = write
+  send confirmation to manager [WC]
+  unlock(ptable[p].lock)
+
+WriteServer(PageNumber p, MachineID request_node):
+  lock(ptable[p].lock)
+  if I am owner of p:
+    send copy of p to request_node [WD]
+    ptable[p].access = nil
+  unlock(ptable[p].lock)
+
+  if I am manager:
+    lock(info[p].lock)
+    send invalidate to each node in info[p].copy_set [IV]
+    wait for all invalidate confirmations [IC]
+    info[p].copy_set = empty
+    ask info[p].owner to send copy of p to request_node [WF]
+    info[p].owner = request_node
+    wait for confirmation from request_node [WC]
+    unlock(info[p].lock)
+
+InvalidateServer(PageNumber p):
+  # no lock...
+  ptable[p].access = nil
+  send confirmation to manager [IC]
