@@ -14,4 +14,4 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 8: [Harp](l08-harp.html): distributed file system
  * Lecture 9: [IVY](l09-dist-comp-seq-consistency.html): Ivy, a distributed shared memory system
 
-**TODO:** add papers
+**TODO:** add [papers](papers/)
