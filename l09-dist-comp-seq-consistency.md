@@ -29,6 +29,30 @@ Distributed Shared Memory (DSM) programming model
  - On a network of cheap machines
    + [diagram: LAN, machines w/ RAM, MGR]
 
+Diagram:
+ 
+        *----------*   *----------*   *----------*
+        |          |   |          |   |          |
+        |          |   |          |   |          |
+        |          |   |          |   |          |
+        *-----*----*   *-----*----*   *-----*----*
+              |              |              |
+      --------*--------------*--------------*-------- LAN
+
+Diagram:
+
+             M0             M1
+        *----------*   *----------*   
+        | M0 acces |   | x x x x  |   
+        |----------|   |----------|
+        | x x x x  |   | M1 acces |   
+        *-----*----*   *-----*----*   
+              |              |        
+      --------*--------------*------- LAN
+
+      The 'xxxxx' pages are not accesible locally,
+      they have to be fetched via the network
+
 **Approach:**
 
  - Simulate shared memory using hardware support for virtual memory 
@@ -107,15 +131,36 @@ Does this naive memory work well?
      writes by the time their `if` statements are reached
      so they will both print _yes_.
  - Naive distributed memory is fast but incorrect
-     
+
+Diagram (broken scheme):
+
+             M0
+        *----------*   *----------*   *----------*
+        |          |   |          |   |          |
+        |        ------------------------> wAx   |
+        |        ----------> wAx  |   |          |
+        *-----*----*   *-----*----*   *-----*----*
+              |              |              |
+      --------*--------------*--------------*-------- LAN
+
+ - M0 does write locally and tells other machines about the 
+   write after it has done it
+ - imagine what output you would get instead of 9, if each
+   machine was running a program that incremented the value
+   at address A 3 times
+
 Coherence = _sequential consistency_
 
+ + "Read sees _most recent_ write" is not clear enough when you
+   have multiple processes
  + Need to nail down correctness a bit more precisely 
  + Sequential consistency means:
-   - The result of any execution is the same as if the operations of all the
-     processors were executed in some sequential order, and the operations of each
-     individual processor appear in this sequence in the order specified by its
-     program
+   - The result of any execution is the same as if 
+     + the operations of all the processors were executed in some sequential order (total order)
+     + and the operations of each individual processor appear in this sequence 
+       in the order specified by its program 
+       - (if P says A before B, you can't have B; A; show up in that seq. order)
+     + and read sees last write in total order
  + There must be some total order of operations such that
    1. Each machine's instructions appear in-order in the order
    2. All machines see results consistent with that order
@@ -149,15 +194,71 @@ Go's memory consistency model
  - Go doesn't require the hardware/DSM to implement strict consistency
  - More about weaker consistency on Thursday
 
+Example:
+
+    x = 1
+    y = 2
+
+ - Go's memory model tells you if thread A will see the write to x if it has seen the write to y
+    + In Go, there's no guarantee x's write will be seen if y was written
+
 A simple implementation of sequential consistency
+
+A straightforward way to get sequential consistency: Just have
+a manager in between the two or three machines that interleaves
+their instructions
+
+        *----------*   *----------*   
+        |          |   |          |   
+        |          |   |          |   
+        |          |   |          |   
+        *-----*----*   *-----*----*   
+              |              |        
+      --------*--------------*--------
+                     |
+                     |
+               *----------*
+               | inter-   |
+               | leaver   |
+               |          |
+               *-----*----*
+                     |
+                    -*-
+                    \ /
+                     .
+                    RAM
 
 <a name="diagram-2"></a>
 **Diagram 2:**
+
+        *----------*   *----------*   
+        |          |   |          |   
+        |          |   |          |   
+        |          |   |          |   
+        *-----*----*   *-----*----*   
+              |              |        
+      --------*--------------*--------
+                     |
+                     |
+               *----------*
+               |          |
+               |          |
+               |          |
+               *-----*----*
+                     |
+                    -*-
+                    \ /
+                     .
+                    RAM
 
  - single memory server
  - each machine sends r/w ops to server, in order, waiting for reply
  - server picks order among waiting ops
  - server executes one by one, sending replies
+ - big ideas:
+   + if people just read some data, we can replicate it on all of them
+   + if someone writes data, we need to prevent other people from writing it
+     - so we take the page out of those other people's memory
   
 This simple implementation will be slow
 
@@ -329,9 +430,13 @@ What might prevent us from getting $N \times$ speedup?
 
 How well do they do?
 
- - Figure 4: near-linear for PDE
+ - Figure 4: near-linear for PDE (partial derivative equations)
  - Figure 6: very sub-linear for sort
+   + sorting a huge array involves moving a lot of data
+   + almost certain to move all data over the network at least once
  - Figure 7: near-linear for matrix multiply
+ - in general, you end up being limited by network throughput
+   for instance when reading a lot of pages
 
 Why did sort do poorly?
 
