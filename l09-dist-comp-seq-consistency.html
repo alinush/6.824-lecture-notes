@@ -1,49 +1,61 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
-<head>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-  <meta http-equiv="Content-Style-Type" content="text/css" />
-  <meta name="generator" content="pandoc" />
-  <title></title>
-  <style type="text/css">code{white-space: pre;}</style>
-  <script src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
-</head>
-<body>
-<h1 id="lecture-11-dsm-and-sequential-consistency">6.824 2014 Lecture 11: DSM and Sequential Consistency</h1>
-<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the 6.824 <a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from Spring 2015.</p>
+<h1>6.824 2014 Lecture 11: DSM and Sequential Consistency</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the 6.824 
+<a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from Spring 2015.</p>
+
 <p><strong>Topic:</strong> Distributed computing</p>
+
 <ul>
 <li>parallel computing on distributed machines</li>
-<li>4 papers on how to use a collection of machines to solve big computational problems</li>
+<li>4 papers on how to use a collection of machines to solve big computational problems
+<ul>
 <li>we already read one of them: MapReduce</li>
-<li>3 other papers (IVY, TreadMarks, and Spark)</li>
+</ul></li>
+<li>3 other papers (IVY, TreadMarks, and Spark)
+<ul>
 <li>two provide a general-purpose memory model</li>
 <li>Spark is in MapReduce style</li>
+</ul></li>
 </ul>
-<h2 id="distributed-shared-memory-dsm-programming-model">Distributed Shared Memory (DSM) programming model</h2>
+
+<h2>Distributed Shared Memory (DSM) programming model</h2>
+
 <ul>
 <li>Adopt the same programming model that multiprocessors offer</li>
-<li>Programmers can use locks and shared memory</li>
-<li>Programmers are familiar with this model</li>
-<li>e.g., like goroutines sharing memory</li>
-<li>General purpose</li>
-<li>e.g., no restrictions like with MapReduce</li>
-<li>Applications that run on a multiprocessor can run on IVY/TreadMarks</li>
-</ul>
-<p><strong>Challenge:</strong> distributed systems don’t have physical shared memory</p>
+<li>Programmers can use locks and shared memory
 <ul>
-<li>On a network of cheap machines</li>
-<li>[diagram: LAN, machines w/ RAM, MGR]</li>
+<li>Programmers are familiar with this model</li>
+<li>e.g., like goroutines sharing memory </li>
+</ul></li>
+<li>General purpose
+<ul>
+<li>e.g., no restrictions like with MapReduce</li>
+</ul></li>
+<li>Applications that run on a multiprocessor can run on IVY/TreadMarks </li>
 </ul>
+
+<p><strong>Challenge:</strong> distributed systems don't have physical shared memory</p>
+
+<ul>
+<li>On a network of cheap machines
+<ul>
+<li>[diagram: LAN, machines w/ RAM, MGR]</li>
+</ul></li>
+</ul>
+
 <p>Diagram:</p>
+
 <pre><code>    *----------*   *----------*   *----------*
     |          |   |          |   |          |
     |          |   |          |   |          |
     |          |   |          |   |          |
     *-----*----*   *-----*----*   *-----*----*
           |              |              |
-  --------*--------------*--------------*-------- LAN</code></pre>
+  --------*--------------*--------------*-------- LAN
+</code></pre>
+
 <p>Diagram:</p>
+
 <pre><code>         M0             M1
     *----------*   *----------*   
     | M0 acces |   | x x x x  |   
@@ -53,24 +65,30 @@
           |              |        
   --------*--------------*------- LAN
 
-  The &#39;xxxxx&#39; pages are not accesible locally,
-  they have to be fetched via the network</code></pre>
+  The 'xxxxx' pages are not accesible locally,
+  they have to be fetched via the network
+</code></pre>
+
 <p><strong>Approach:</strong></p>
+
 <ul>
-<li>Simulate shared memory using hardware support for virtual memory</li>
-<li>General idea illustrated with 2 machines:</li>
-<li>Part of the address space maps a part of M0’s physical memory
+<li>Simulate shared memory using hardware support for virtual memory </li>
+<li>General idea illustrated with 2 machines:
 <ul>
-<li>On M0 it maps to the M0’s physical page</li>
-<li>On M1 it maps to not present</li>
+<li>Part of the address space maps a part of M0's physical memory
+<ul>
+<li>On M0 it maps to the M0's physical page</li>
+<li>On M1 it maps to not present </li>
 </ul></li>
-<li>Part of the address space maps a part of M1’s physical memory
+<li>Part of the address space maps a part of M1's physical memory
 <ul>
 <li>On M0 it maps to not present</li>
 <li>On M1 it maps to its physical memory</li>
 </ul></li>
-<li>A thread of the application on M1 may refer to an address that lives on M0</li>
-<li>If thread LD/ST to that “shared” address, M1’s hardware will take a page fault
+</ul></li>
+<li>A thread of the application on M1 may refer to an address that lives on M0
+<ul>
+<li>If thread LD/ST to that "shared" address, M1's hardware will take a page fault
 <ul>
 <li>Because page is mapped as not present</li>
 </ul></li>
@@ -81,31 +99,51 @@
 <li>DSM on M1 maps the shared address to physical address 4096</li>
 <li>DSM returns from page fault handler</li>
 <li>Hardware retries LD/ST</li>
-<li>Runs threaded code w/o modification</li>
-<li>e.g. matrix multiply, physical simulation, sort</li>
-</ul>
-<p><strong>Challenges:</strong></p>
+</ul></li>
+<li>Runs threaded code w/o modification
 <ul>
-<li>How to implement it efficiently?</li>
+<li>e.g. matrix multiply, physical simulation, sort</li>
+</ul></li>
+</ul>
+
+<p><strong>Challenges:</strong></p>
+
+<ul>
+<li>How to implement it efficiently?
+<ul>
 <li>IVY and Treadmarks</li>
-<li>How to provide fault tolerance?</li>
+</ul></li>
+<li>How to provide fault tolerance?
+<ul>
 <li>Many DSMs <a href="https://www.google.com/search?q=punt&amp;oq=punt">punt</a> on this</li>
 <li>Some DSM checkpoint the whole memory periodically</li>
 <li>We will return to this when talking about Spark</li>
+</ul></li>
 </ul>
+
 <p><strong>Correctness: coherence</strong></p>
+
 <ul>
-<li>We need to articulate what is correctness before optimizing performance</li>
+<li>We need to articulate what is correctness before optimizing performance
+<ul>
 <li>Optimizations should preserve correctness</li>
-<li>Less obvious than it may seem!</li>
+</ul></li>
+<li>Less obvious than it may seem!
+<ul>
 <li>Choice trades off between performance and programmer-friendliness</li>
 <li>Huge factor in many designs</li>
-<li>More in next lecture</li>
-<li>Today’s paper assumes a simple model</li>
+<li>More in next lecture </li>
+</ul></li>
+<li>Today's paper assumes a simple model
+<ul>
 <li>The distributed memory should behave like a single memory</li>
 <li>Load/stores much like put/gets in labs 2-4</li>
+</ul></li>
 </ul>
-<p><a name="example-1"></a> <strong>Example 1:</strong></p>
+
+<p><a name="example-1"></a>
+<strong>Example 1:</strong></p>
+
 <pre><code>  x and y start out = 0
 
   M0:
@@ -117,23 +155,36 @@
     if x == 0:
       print yes
 
-  Can they both print &quot;yes&quot;?</code></pre>
+  Can they both print "yes"?
+</code></pre>
+
 <p>Naive distributed shared memory</p>
-<p><a name="diagram-1"></a> <strong>Diagram 1:</strong></p>
+
+<p><a name="diagram-1"></a>
+<strong>Diagram 1:</strong></p>
+
 <ul>
 <li>M0, M1, M2, LAN</li>
 <li>each machine has a local copy of all of memory</li>
 <li>read: from local memory</li>
-<li>write: send update msg to each other host (but don’t wait)</li>
+<li>write: send update msg to each other host (but don't wait)</li>
 <li>fast: never waits for communication</li>
 </ul>
+
 <p>Does this naive memory work well?</p>
+
 <ul>
-<li>What will it do with <a href="#example-1">Example 1</a>?</li>
-<li>It can fail because M0 and M1 could not see the writes by the time their <code>if</code> statements are reached so they will both print <em>yes</em>.</li>
+<li>What will it do with <a href="#example-1">Example 1</a>?
+<ul>
+<li>It can fail because M0 and M1 could not see the 
+writes by the time their <code>if</code> statements are reached
+so they will both print <em>yes</em>.</li>
+</ul></li>
 <li>Naive distributed memory is fast but incorrect</li>
 </ul>
+
 <p>Diagram (broken scheme):</p>
+
 <pre><code>         M0
     *----------*   *----------*   *----------*
     |          |   |          |   |          |
@@ -141,70 +192,100 @@
     |        ----------&gt; wAx  |   |          |
     *-----*----*   *-----*----*   *-----*----*
           |              |              |
-  --------*--------------*--------------*-------- LAN</code></pre>
+  --------*--------------*--------------*-------- LAN
+</code></pre>
+
 <ul>
-<li>M0 does write locally and tells other machines about the write after it has done it</li>
-<li>imagine what output you would get instead of 9, if each machine was running a program that incremented the value at address A 3 times</li>
+<li>M0 does write locally and tells other machines about the 
+write after it has done it</li>
+<li>imagine what output you would get instead of 9, if each
+machine was running a program that incremented the value
+at address A 3 times</li>
 </ul>
+
 <p>Coherence = <em>sequential consistency</em></p>
+
 <ul>
-<li>“Read sees <em>most recent</em> write” is not clear enough when you have multiple processes</li>
-<li>Need to nail down correctness a bit more precisely</li>
-<li>Sequential consistency means:</li>
-<li>The result of any execution is the same as if
+<li>"Read sees <em>most recent</em> write" is not clear enough when you
+have multiple processes</li>
+<li>Need to nail down correctness a bit more precisely </li>
+<li>Sequential consistency means:
+<ul>
+<li>The result of any execution is the same as if 
 <ul>
 <li>the operations of all the processors were executed in some sequential order (total order)</li>
-<li>and the operations of each individual processor appear in this sequence in the order specified by its program</li>
-<li>(if P says A before B, you can’t have B; A; show up in that seq. order)</li>
+<li>and the operations of each individual processor appear in this sequence 
+in the order specified by its program </li>
+<li>(if P says A before B, you can't have B; A; show up in that seq. order)</li>
 <li>and read sees last write in total order</li>
 </ul></li>
-<li>There must be some total order of operations such that</li>
-</ul>
-<ol style="list-style-type: decimal">
-<li>Each machine’s instructions appear in-order in the order</li>
+</ul></li>
+<li>There must be some total order of operations such that
+<ol>
+<li>Each machine's instructions appear in-order in the order</li>
 <li>All machines see results consistent with that order
 <ul>
-<li>i.e. reads see most recent write in the order</li>
+<li>i.e. reads see most recent write in the order</li>
 </ul></li>
-</ol>
-<ul>
+</ol></li>
 <li>Behavior of a single shared memory</li>
 </ul>
+
 <p>Would sequential consistency cause our example to get the intuitive result?</p>
+
 <p>Sequence:</p>
+
 <pre><code>  M0: Wx1 Ry?
-  M1: Wy1 Rx?</code></pre>
+  M1: Wy1 Rx?
+</code></pre>
+
 <ul>
-<li>The system is required to merge these into one order, and to maintain the order of each machine’s operations.</li>
-<li>So there are a few possibilities:</li>
+<li>The system is required to merge these into one order,
+and to maintain the order of each machine's operations.</li>
+<li>So there are a few possibilities:
+<ul>
 <li><code>Wx1 Ry0 Wy1 Rx1</code></li>
 <li><code>Wx1 Wy1 Ry1 Rx1</code></li>
 <li><code>Wx1 Wy1 Rx1 Ry1</code></li>
 <li>others too, but all symmetric?</li>
-<li>What is forbidden?</li>
-<li><code>Wx1 Ry0 Wy1 Rx0</code> – Rx0 read didn’t see preceding Wx1 write (naive system did this)</li>
-<li><code>Ry0 Wy1 Rx0 Wx1</code> – M0’s instructions out of order (some CPUs do this)</li>
-</ul>
-<p>Go’s memory consistency model</p>
+</ul></li>
+<li>What is forbidden?
 <ul>
-<li>What is Go’s semantics for the example?</li>
-<li>Go would allow both goroutines to print “yes”!</li>
-<li>Go race detector wouldn’t like the example program anyway</li>
-<li>Programmer is <em>required</em> to use locks/channels to get sensible semantics</li>
-<li>Go doesn’t require the hardware/DSM to implement strict consistency</li>
-<li>More about weaker consistency on Thursday</li>
-</ul>
-<p>Example:</p>
-<pre><code>x = 1
-y = 2</code></pre>
-<ul>
-<li>Go’s memory model tells you if thread A will see the write to x if it has seen the write to y
-<ul>
-<li>In Go, there’s no guarantee x’s write will be seen if y was written</li>
+<li><code>Wx1 Ry0 Wy1 Rx0</code> -- Rx0 read didn't see preceding Wx1 write (naive system did this)</li>
+<li><code>Ry0 Wy1 Rx0 Wx1</code> -- M0's instructions out of order (some CPUs do this)</li>
 </ul></li>
 </ul>
+
+<p>Go's memory consistency model</p>
+
+<ul>
+<li>What is Go's semantics for the example?</li>
+<li>Go would allow both goroutines to print "yes"!</li>
+<li>Go race detector wouldn't like the example program anyway</li>
+<li>Programmer is <em>required</em> to use locks/channels to get sensible semantics</li>
+<li>Go doesn't require the hardware/DSM to implement strict consistency</li>
+<li>More about weaker consistency on Thursday</li>
+</ul>
+
+<p>Example:</p>
+
+<pre><code>x = 1
+y = 2
+</code></pre>
+
+<ul>
+<li>Go's memory model tells you if thread A will see the write to x if it has seen the write to y
+<ul>
+<li>In Go, there's no guarantee x's write will be seen if y was written</li>
+</ul></li>
+</ul>
+
 <p>A simple implementation of sequential consistency</p>
-<p>A straightforward way to get sequential consistency: Just have a manager in between the two or three machines that interleaves their instructions</p>
+
+<p>A straightforward way to get sequential consistency: Just have
+a manager in between the two or three machines that interleaves
+their instructions</p>
+
 <pre><code>    *----------*   *----------*   
     |          |   |          |   
     |          |   |          |   
@@ -223,8 +304,12 @@ y = 2</code></pre>
                 -*-
                 \ /
                  .
-                RAM</code></pre>
-<p><a name="diagram-2"></a> <strong>Diagram 2:</strong></p>
+                RAM
+</code></pre>
+
+<p><a name="diagram-2"></a>
+<strong>Diagram 2:</strong></p>
+
 <pre><code>    *----------*   *----------*   
     |          |   |          |   
     |          |   |          |   
@@ -243,154 +328,225 @@ y = 2</code></pre>
                 -*-
                 \ /
                  .
-                RAM</code></pre>
+                RAM
+</code></pre>
+
 <ul>
 <li>single memory server</li>
 <li>each machine sends r/w ops to server, in order, waiting for reply</li>
 <li>server picks order among waiting ops</li>
 <li>server executes one by one, sending replies</li>
-<li>big ideas:</li>
+<li>big ideas:
+<ul>
 <li>if people just read some data, we can replicate it on all of them</li>
 <li>if someone writes data, we need to prevent other people from writing it
 <ul>
-<li>so we take the page out of those other people’s memory</li>
+<li>so we take the page out of those other people's memory</li>
+</ul></li>
 </ul></li>
 </ul>
+
 <p>This simple implementation will be slow</p>
+
 <ul>
 <li>single server will get overloaded</li>
 <li>no local cache, so all operations wait for server</li>
 </ul>
+
 <p>Which brings us to <strong>IVY</strong></p>
+
 <ul>
 <li>IVY: Integrated shared Virtual memory at Yale</li>
 <li>Memory Coherence in Shared Virtual Memory Systems, Li and Hudak, PODC 1986</li>
 </ul>
+
 <p>IVY big picture</p>
+
 <p><a name="diagram-3"></a></p>
-<pre><code>  [diagram: M0 w/ a few pages of mem, M1 w/ a few pages, LAN]</code></pre>
+
+<pre><code>  [diagram: M0 w/ a few pages of mem, M1 w/ a few pages, LAN]
+</code></pre>
+
 <ul>
 <li>Operates on pages of memory, stored in machine DRAM (no mem server)</li>
-<li>Each page present in each machine’s virtual address space</li>
+<li>Each page present in each machine's virtual address space</li>
 <li>On each a machine, a page might be invalid, read-only, or read-write</li>
 <li>Uses VM hardware to intercept reads/writes</li>
 </ul>
+
 <p>Invariant:</p>
+
 <ul>
-<li>A page is either:</li>
+<li>A page is either:
+<ul>
 <li>Read/write on one machine, invalid on all others; or</li>
-<li>Read/only on <span class="math">\(\geq 1\)</span> machines, read/write on none</li>
-<li>Read fault on an invalid page:</li>
+<li>Read/only on $\geq 1$ machines, read/write on none</li>
+</ul></li>
+<li>Read fault on an invalid page:
+<ul>
 <li>Demote R/W (if any) to R/O</li>
 <li>Copy page</li>
 <li>Mark local copy R/O</li>
-<li>Write fault on an R/O page:</li>
+</ul></li>
+<li>Write fault on an R/O page:
+<ul>
 <li>Invalidate all copies</li>
 <li>Mark local copy R/W</li>
+</ul></li>
 </ul>
+
 <p>IVY allows multiple reader copies between writes</p>
+
 <ul>
-<li>For speed – local reads are fast</li>
+<li>For speed -- local reads are fast</li>
 <li>No need to force an order for reads that occur between two writes</li>
-<li>Let them occur concurrently – a copy of the page at each reader</li>
+<li>Let them occur concurrently -- a copy of the page at each reader</li>
 </ul>
+
 <p>Why crucial to invalidate all copies before write?</p>
+
 <ul>
 <li>Once a write completes, all subsequent reads <em>must</em> see new data</li>
-<li>Otherwise we break our example, and don’t get sequential consistency</li>
+<li>Otherwise we break our example, and don't get sequential consistency</li>
 </ul>
+
 <p>How does IVY do on the example?</p>
+
 <ul>
-<li>I.e. could both M0 and M1 print “yes”?</li>
-<li>If M0 sees y == 0,</li>
-<li>M1 hasn’t done ites write to y (no stale data == reads see prior writes),</li>
-<li>M1 hasn’t read x (each machine in order),</li>
+<li>I.e. could both M0 and M1 print "yes"?</li>
+<li>If M0 sees y == 0,
+<ul>
+<li>M1 hasn't done ites write to y (no stale data == reads see prior writes),</li>
+<li>M1 hasn't read x (each machine in order),</li>
 <li>M1 must see x == 1 (no stale data == reads see prior writes).</li>
+</ul></li>
 </ul>
+
 <p>Message types:</p>
+
 <ul>
-<li>[don’t list these on board, just for reference]</li>
+<li>[don't list these on board, just for reference]</li>
 <li>RQ read query (reader to manager (MGR))</li>
 <li>RF read forward (MGR to owner)</li>
 <li>RD read data (owner to reader)</li>
 <li>RC read confirm (reader to MGR)</li>
 <li>&amp;c</li>
 </ul>
+
 <p>(see <a href="code/ivy-code.txt">ivy-code.txt</a> on web site)</p>
+
 <p>Scenario 1: M0 has writeable copy, M1 wants to read</p>
+
 <p><strong>Diagram 3:</strong></p>
-<pre><code>  [time diagram: M 0 1]</code></pre>
-<ol start="0" style="list-style-type: decimal">
+
+<pre><code>  [time diagram: M 0 1]
+</code></pre>
+
+<ol>
 <li>M1 tries to read gets a page fault
 <ul>
-<li>b.c. page must have been marked invalid since M0 has it for R/W (see invariant described earlier)</li>
+<li>b.c. page must have been marked invalid since
+M0 has it for R/W (see invariant described earlier)</li>
 </ul></li>
 <li>M1 sends RQ to MGR</li>
 <li>MGR sends RF to M0, MGR adds M1 to <code>copy_set</code>
 <ul>
 <li>What is <code>copy_set</code>?</li>
-<li>“The <code>copy_set</code> field lists all processors that have copies of the page. This allows an invalidation operation to be performed without using broadcast.”</li>
+<li>"The <code>copy_set</code> field lists all processors that have copies of the page. 
+This allows an invalidation operation to be performed without using
+broadcast."</li>
 </ul></li>
-<li>M0 marks page as <span class="math">\(access = read\)</span>, sends RD to M1</li>
-<li>M1 marks <span class="math">\(access = read\)</span>, sends RC to MGR</li>
+<li>M0 marks page as $access = read$, sends RD to M1</li>
+<li>M1 marks $access = read$, sends RC to MGR</li>
 </ol>
+
 <p>Scenario 2: now M2 wants to write</p>
+
 <p><strong>Diagram 4:</strong></p>
-<pre><code>  [time diagram: M 0 1 2]</code></pre>
-<ol start="0" style="list-style-type: decimal">
+
+<pre><code>  [time diagram: M 0 1 2]
+</code></pre>
+
+<ol>
 <li>Page fault on M2</li>
 <li>M2 sends WQ to MGR</li>
-<li>MGR sends IV to copy_set (i.e. M1)</li>
+<li>MGR sends IV to copy_set (i.e. M1)</li>
 <li>M1 sends IC msg to MGR</li>
 <li>MGR sends WF to M0, sets owner=M2, copy_set={}</li>
 <li>M0 sends WD to M2, access=none</li>
 <li>M2 marks r/w, sends WC to MGR</li>
 </ol>
+
 <p><strong>Q:</strong> What if two machines want to write the same page at the same time?</p>
+
 <p><strong>Q:</strong> What if one machine reads just as ownership is changing hands?</p>
+
 <p>Does IVY provide strict consistency?</p>
+
 <ul>
 <li>no: MGR might process two STs in order opposite to issue time</li>
-<li>no: ST may take a long time to revoke read access on other machines</li>
+<li>no: ST may take a long time to revoke read access on other machines
+<ul>
 <li>so LDs may get old data long after the ST issues</li>
+</ul></li>
 </ul>
+
 <p>What if there were no IC message?</p>
+
 <p><strong>TODO:</strong> What is IC?</p>
+
 <ul>
 <li>(this is the new Question)</li>
-<li>i.e. MGR didn’t wait for holders of copies to ACK?</li>
+<li>i.e. MGR didn't wait for holders of copies to ACK?</li>
 </ul>
+
 <p>No WC?</p>
+
 <p><strong>TODO:</strong> What is WC?</p>
+
 <ul>
 <li>(this used to be The Question)</li>
-<li>e.g. MGR unlocked after sending WF to M0?</li>
+<li>e.g. MGR unlocked after sending WF to M0?</li>
 <li>MGR would send subsequent RF, WF to M2 (new owner)</li>
-<li>What if such a WF/RF arrived at M2 before WD?</li>
-<li>No problem! M2 has <code>ptable[p].lock</code> locked until it gets WD</li>
-<li>RC + <code>info[p].lock</code> prevents RF from being overtaken by a WF</li>
-<li>so it’s not clear why WC is needed!</li>
-<li>but I am not confident in this conclusion</li>
-</ul>
-<p>What if there were no RC message?</p>
+<li>What if such a WF/RF arrived at M2 before WD?
 <ul>
-<li>i.e. MGR unlocked after sending RF?</li>
+<li>No problem! M2 has <code>ptable[p].lock</code> locked until it gets WD</li>
+</ul></li>
+<li>RC + <code>info[p].lock</code> prevents RF from being overtaken by a WF</li>
+<li>so it's not clear why WC is needed!
+<ul>
+<li>but I am not confident in this conclusion</li>
+</ul></li>
+</ul>
+
+<p>What if there were no RC message?</p>
+
+<ul>
+<li>i.e. MGR unlocked after sending RF?</li>
 <li>could RF be overtaken by subsequent WF?</li>
 <li>or by a subsequent IV?</li>
 </ul>
+
 <p>In what situations will IVY perform well?</p>
-<ol style="list-style-type: decimal">
+
+<ol>
 <li>Page read by many machines, written by none</li>
 <li>Page written by just one machine at a time, not used at all by others</li>
 </ol>
+
 <p>Cool that IVY moves pages around in response to changing use patterns</p>
-<p>Will page size of e.g. 4096 bytes be good or bad?</p>
+
+<p>Will page size of e.g. 4096 bytes be good or bad?</p>
+
 <ul>
-<li>good if spatial locality, i.e. program looks at large blocks of data</li>
-<li>bad if program writes just a few bytes in a page</li>
+<li>good if spatial locality, i.e. program looks at large blocks of data</li>
+<li>bad if program writes just a few bytes in a page
+<ul>
 <li>subsequent readers copy whole page just to get a few new bytes</li>
-<li>bad if false sharing</li>
-<li>i.e. two unrelated variables on the same page
+</ul></li>
+<li>bad if false sharing
+<ul>
+<li>i.e. two unrelated variables on the same page
 <ul>
 <li>and at least one is frequently written</li>
 </ul></li>
@@ -399,71 +555,107 @@ y = 2</code></pre>
 <li>even read-only users of a non-changing variable will get invalidations</li>
 </ul></li>
 <li>even though those computers never use the same location</li>
+</ul></li>
 </ul>
-<p>What about IVY’s performance?</p>
+
+<p>What about IVY's performance?</p>
+
 <ul>
 <li>after all, the point was speedup via parallelism</li>
 </ul>
-<p>What’s the best we could hope for in terms of performance?</p>
+
+<p>What's the best we could hope for in terms of performance?</p>
+
 <ul>
-<li><span class="math">\(N \times\)</span> faster on N machines</li>
+<li>$N \times$ faster on N machines</li>
 </ul>
-<p>What might prevent us from getting <span class="math">\(N \times\)</span> speedup?</p>
+
+<p>What might prevent us from getting $N \times$ speedup?</p>
+
 <ul>
-<li>Application is inherently non-scalable</li>
-<li>Can’t be split into parallel activities</li>
-<li>Application communicates too many bytes</li>
+<li>Application is inherently non-scalable
+<ul>
+<li>Can't be split into parallel activities</li>
+</ul></li>
+<li>Application communicates too many bytes
+<ul>
 <li>So network prevents more machines yielding more performance</li>
-<li>Too many small reads/writes to shared pages</li>
+</ul></li>
+<li>Too many small reads/writes to shared pages
+<ul>
 <li>Even if # bytes is small, IVY makes this expensive</li>
+</ul></li>
 </ul>
+
 <p>How well do they do?</p>
+
 <ul>
 <li>Figure 4: near-linear for PDE (partial derivative equations)</li>
-<li>Figure 6: very sub-linear for sort</li>
+<li>Figure 6: very sub-linear for sort
+<ul>
 <li>sorting a huge array involves moving a lot of data</li>
 <li>almost certain to move all data over the network at least once</li>
+</ul></li>
 <li>Figure 7: near-linear for matrix multiply</li>
-<li>in general, you end up being limited by network throughput for instance when reading a lot of pages</li>
+<li>in general, you end up being limited by network throughput
+for instance when reading a lot of pages</li>
 </ul>
+
 <p>Why did sort do poorly?</p>
+
 <ul>
-<li>Here’s my guess</li>
+<li>Here's my guess</li>
 <li>N machines, data in 2*N partitions</li>
 <li>Phase 1: Local sort of 2*N partitions for N machines</li>
 <li>Phase 2: 2N-1 merge-splits; each round sends all data over network</li>
 <li>Phase 1 probably gets linear speedup</li>
-<li>Phase 2 probably does not – limited by LAN speed</li>
+<li>Phase 2 probably does not -- limited by LAN speed
+<ul>
 <li>also more machines may mean more rounds</li>
+</ul></li>
 <li>So for small # machines, local sort dominates, more machines helps</li>
-<li>For large # machines, communication dominates, more machines don’t help</li>
+<li>For large # machines, communication dominates, more machines don't help</li>
 <li>Also, more machines shifts from n*log(n) local sort to n^2 bubble-ish short</li>
 </ul>
+
 <p>How could one speed up IVY?</p>
+
 <ul>
-<li>next lecture: relax the consistency model</li>
+<li>next lecture: relax the consistency model
+<ul>
 <li>allow multiple writers to same page!</li>
+</ul></li>
 </ul>
-<p>Paper intro says DSM subsumes RPC – is that true?</p>
+
+<p>Paper intro says DSM subsumes RPC -- is that true?</p>
+
 <ul>
-<li>When would DSM be better than RPC?</li>
+<li>When would DSM be better than RPC?
+<ul>
 <li>More transparent. Easier to program.</li>
-<li>When would RPC be better?</li>
+</ul></li>
+<li>When would RPC be better?
+<ul>
 <li>Isolation. Control over communication. Tolerate latency.</li>
 <li>Portability. Define your own semantics.</li>
 <li>Abstraction?</li>
+</ul></li>
 <li>Might you still want RPC in your DSM system? For efficient sleep/wakeup?</li>
 </ul>
+
 <p>Known problems in Section 3.1 pseudo-code</p>
+
 <ul>
 <li>Fault handlers must wait for owner to send <code>p</code> before confirming to manager</li>
-<li>Deadlock if owner has page R/O and takes write fault</li>
+<li>Deadlock if owner has page R/O and takes write fault
+<ul>
 <li>Worrisome that no clear order <code>ptable[p].lock</code> vs <code>info[p].lock</code></li>
 <li>TODO: Whaaaat?</li>
+</ul></li>
 <li>Write server / manager must set <code>owner = request_node</code></li>
-<li>Manager parts of fault handlers don’t ask owner for the page</li>
-<li>Does processing of the invalidate request hold <code>ptable[p].lock?</code></li>
-<li>probably can’t – deadlock</li>
+<li>Manager parts of fault handlers don't ask owner for the page</li>
+<li>Does processing of the invalidate request hold <code>ptable[p].lock?</code>
+<ul>
+<li>probably can't -- deadlock</li>
+</ul></li>
 </ul>
-</body>
-</html>
