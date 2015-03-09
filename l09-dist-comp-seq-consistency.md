@@ -1,4 +1,4 @@
-6.824 2014 Lecture 11: DSM and Sequential Consistency
+6.824 2015 Lecture 9: DSM and Sequential Consistency
 =====================================================
 
 **Note:** These lecture notes were slightly modified from the ones posted on the 6.824 

@@ -1,0 +1,469 @@
+<h1>6.824 2015 Lecture 10: Consistency</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the 6.824 
+<a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from Spring 2015.</p>
+
+<p><strong>Today:</strong> consistency</p>
+
+<ul>
+<li>Lazy release consistency</li>
+<li>Using lazy consistency to get performance</li>
+<li>Consistency = meaning of concurrent reads and writes</li>
+<li>Less obvious than it may seem!</li>
+<li>Choice trades off between performance and programmer-friendliness
+<ul>
+<li>Huge factor in many designs</li>
+</ul></li>
+<li><a href="papers/keleher-treadmarks.pdf">Today's paper</a>: a case study</li>
+</ul>
+
+<p>Many systems have storage/memory w/ concurrent readers and writers</p>
+
+<ul>
+<li>Multiprocessors, databases, AFS, labs</li>
+<li>You often want to improve in ways that risk changing behavior:
+<ul>
+<li>add caching</li>
+<li>split over multiple servers</li>
+<li>replicate for fault tolerance</li>
+</ul></li>
+<li>How do we know if an optimization is correct?</li>
+<li>We need a way to think about correct execution of distributed programs</li>
+<li>Most of these ideas from multiprocessors and databases 20/30 years ago</li>
+</ul>
+
+<p>How can we write correct distributed programs w/ shared storage?</p>
+
+<ul>
+<li>Memory system promises to behave according to certain rules</li>
+<li>We write programs assuming those rules</li>
+<li>Rules are a "consistency model"</li>
+<li>Contract between memory system and programmer</li>
+</ul>
+
+<p>What makes a good consistency model?</p>
+
+<ul>
+<li>There are no "right" or "wrong" models</li>
+<li>A model may make it harder or easier to program
+<ul>
+<li>i.e. lead to more or less intuitive results</li>
+</ul></li>
+<li>A model may be harder or easier to implement efficiently</li>
+<li>Also application dependent
+<ul>
+<li>e.g. Web pages vs memory</li>
+</ul></li>
+</ul>
+
+<p>Some consistency models:</p>
+
+<ul>
+<li>Spanner: external consistency  (behaves like a single machine)</li>
+<li>Database world: strict serializability, serializability, snap-shot isolation, read-committed</li>
+<li>Distributed file systems: open-to-close consistency</li>
+<li>Computer architects: TSO (total store ordering), release consistency, etc.</li>
+<li>Concurrency theory: sequential consistency, linearizability</li>
+<li>Similar ideas, but sometimes slightly different meaning</li>
+</ul>
+
+<p>DSM is a good place to start to study consistency</p>
+
+<ul>
+<li>Simple interface: read and write of memory locations</li>
+<li>Consistency well developed in architecture community</li>
+</ul>
+
+<p>Example:</p>
+
+<pre><code>  x and y start out = 0
+  M0:
+    x = 1
+    if y == 0:
+      print yes
+  M1:
+    y = 1
+    if x == 0:
+      print yes
+  Can they both print "yes"?
+</code></pre>
+
+<p>Performance of DSM is limited by memory consistency</p>
+
+<ul>
+<li>With sequential consistency, M0's write must be visible to M1 before M0 can execute read
+<ul>
+<li>Otherwise both M0 and M1 can read 0 and print "yes"</li>
+<li>(Second "forbidden" example)</li>
+</ul></li>
+<li>Thus operations will take a while in a distributed system
+<ul>
+<li>And they have to be done one by one</li>
+</ul></li>
+</ul>
+
+<p>Treadmarks high level goals?</p>
+
+<ul>
+<li>Better DSM performance</li>
+<li>Run existing parallel code</li>
+</ul>
+
+<p>What specific problems with previous DSM are they trying to fix?</p>
+
+<ul>
+<li><strong>false sharing:</strong> two machines r/w different vars on same page
+<ul>
+<li>m1 writes x, m2 writes y</li>
+<li>m1 writes x, m2 just reads y</li>
+<li><strong>Q:</strong> what does IVY do in this situation?</li>
+<li><strong>A:</strong> Ivy will bounce the page between x and y back and forth</li>
+</ul></li>
+<li>write amplification: a one byte write turns into a whole-page transfer</li>
+</ul>
+
+<p><strong>First Goal:</strong> eliminate write amplification</p>
+
+<ul>
+<li>don't send whole page, just written bytes</li>
+</ul>
+
+<h3>Big idea: write diffs</h3>
+
+<p>Example: </p>
+
+<pre><code>m1 writes x, m2 writes y
+m1 writes x, m2 just reads y
+// TODO: not clear which example the explanations
+// below refer to
+</code></pre>
+
+<ul>
+<li>on M1 write fault:
+<ul>
+<li>tell other hosts to invalidate but keep hidden copy</li>
+<li>M1 makes hidden copy as well</li>
+</ul></li>
+<li>on M2 fault:
+<ul>
+<li>M2 asks M1 for recent modifications</li>
+<li>M1 "diffs" current page against hidden copy</li>
+<li>M1 send diffs to M2</li>
+<li>M2 applies diffs to its hidden copy</li>
+</ul></li>
+</ul>
+
+<p><strong>Q:</strong> Do write diffs provide sequential consistency?
+ - At most one writeable copy, so writes are ordered
+ - No writing while any copy is readable, so no stale reads
+ - Readable copies are up to date, so no stale reads
+ - Still sequentially consistent</p>
+
+<p><strong>Q:</strong> Do write diffs help with false sharing?</p>
+
+<p>Next goal: allow multiple readers+writers to cope with false sharing</p>
+
+<ul>
+<li><code>=&gt;</code> don't invalidate others when a machine writes</li>
+<li><code>=&gt;</code> don't demote writers to r/o when another machine reads</li>
+<li><code>=&gt;</code> multiple <em>different</em> copies of a page!
+<ul>
+<li>which should a reader look at?</li>
+</ul></li>
+<li>diffs help: can merge writes to same page</li>
+<li>but when to send the diffs?
+<ul>
+<li>no invalidations -> no page faults -> what triggers sending diffs</li>
+</ul></li>
+</ul>
+
+<h3>Big idea: release consistency (RC)</h3>
+
+<ul>
+<li>no-one should read data w/o holding a lock!
+<ul>
+<li>so let's assume a lock server</li>
+</ul></li>
+<li>send out write diffs on release
+<ul>
+<li>to <em>all</em> machines with a copy of the written page(s)</li>
+</ul></li>
+</ul>
+
+<p>Example 1 (RC and false sharing)</p>
+
+<pre><code>x and y are on the same page
+ax -- acquire lock x
+rx -- release lock x
+
+M0: a1 for(...) x++ r1
+M1: a2 for(...) y++ r2  a1 print x, y r1
+</code></pre>
+
+<p>What does RC do?</p>
+
+<ul>
+<li>M0 and M1 both get cached writeable copy of the page</li>
+<li>when they release, each computes diffs against original page</li>
+<li><code>M1</code>'s <code>a1</code> causes it to wait until <code>M0</code>'s <code>r1</code> release
+<ul>
+<li>so M1 will see M0's writes</li>
+</ul></li>
+</ul>
+
+<p><strong>Q:</strong> What is the performance benefit of RC?</p>
+
+<ul>
+<li>What does IVY do with Example 1?</li>
+<li>multiple machines can have copies of a page, even when 1 or more writes
+<ul>
+<li><code>=&gt;</code> no bouncing of pages due to false sharing</li>
+<li><code>=&gt;</code> read copies can co-exist with writers</li>
+</ul></li>
+</ul>
+
+<p><strong>Q:</strong> Is RC sequentially consistent? No!</p>
+
+<ul>
+<li>M1 won't see M0's writes until M0 releases a lock
+<ul>
+<li>i.e. M1 can see a stale copy of x, which wasn't allowed under seq const</li>
+</ul></li>
+<li>so machines can temporarily disagree on memory contents</li>
+<li>if you always lock:
+<ul>
+<li>locks force order <code>-&gt;</code> no stale reads <code>-&gt;</code> like sequential consistency</li>
+</ul></li>
+</ul>
+
+<p><strong>Q:</strong> What if you don't lock?</p>
+
+<ul>
+<li>Reads can return stale data</li>
+<li>Concurrent writes to same var -> trouble</li>
+</ul>
+
+<p><strong>Q:</strong> Does RC make sense without write diffs?</p>
+
+<ul>
+<li>Probably not: diffs needed to reconcile concurrent writes to same page</li>
+</ul>
+
+<h3>Big idea: lazy release consistency (LRC)</h3>
+
+<ul>
+<li>only send write diffs to next acquirer of released lock</li>
+<li>lazier than RC in two ways:
+<ul>
+<li>release does nothing, so maybe defer work to future release</li>
+<li>sends write diffs just to acquirer, not everyone</li>
+</ul></li>
+</ul>
+
+<p>Example 2 (lazyness)</p>
+
+<pre><code>x and y on same page (otherwise IVY avoids copy too)
+
+M0: a1 x=1 r1
+M1:           a2 y=1 r2
+M2:                     a1 print x,y r1
+</code></pre>
+
+<p>What does LRC do?</p>
+
+<ul>
+<li>M2 only asks previous holder of lock 1 for write diffs</li>
+<li>M2 does not see M1's modification to y, even though on same page
+<ul>
+<li>because it did not acquire lock 2 using <code>a2</code></li>
+</ul></li>
+</ul>
+
+<p>What does RC do?</p>
+
+<p>What does IVY do?</p>
+
+<p><strong>Q:</strong> What's the performance win from LRC?</p>
+
+<ul>
+<li>if you don't acquire lock on object, you don't see updates to it</li>
+<li><code>=&gt;</code> if you use just some vars on a page, you don't see writes to others</li>
+<li><code>=&gt;</code> less network traffic</li>
+</ul>
+
+<p><strong>Q:</strong> Does LRC provide the same consistency model as RC?</p>
+
+<ul>
+<li>no: LRC hides some writes that RC reveals</li>
+<li>in above example, RC reveals <code>y=1</code> to M2, LRC does not reveal
+<ul>
+<li>because RC broadcasts changes on a lock release</li>
+</ul></li>
+<li>so <code>"M2: print x, y"</code> might print fresh data for RC, stale for LRC
+<ul>
+<li>depends on whether print is before/after M1's release</li>
+</ul></li>
+</ul>
+
+<p><strong>Q:</strong> Is LRC a win over IVY if each variable on a separate page?</p>
+
+<ul>
+<li>Or a win over IVY plus write diffs?</li>
+</ul>
+
+<p>Do we think all threaded/locking code will work with LRC?</p>
+
+<ul>
+<li>Do all programs lock every shared variable they read?</li>
+<li>Paper doesn't quite say, but strongly implies "no"!</li>
+</ul>
+
+<p>Example 3 (causal anomaly)</p>
+
+<pre><code>M0: a1 x=1 r1
+M1:             a1 a2 y=x r2 r1
+M2:                             a2 print x, y r2
+</code></pre>
+
+<p>What's the potential problem here?</p>
+
+<ul>
+<li>Counter-intuitive that M2 might see y=1 but x=0
+<ul>
+<li>because M2 didn't acquire lock 1, it could not get
+the changes to <code>x</code></li>
+</ul></li>
+</ul>
+
+<p>A violation of "causal consistency":</p>
+
+<ul>
+<li>If write W1 contributed to write W2, everyone sees W1 before W2</li>
+</ul>
+
+<p>TreadMarks provides causal consistency:</p>
+
+<ul>
+<li>when you acquire a lock,</li>
+<li>you see all writes by previous holder</li>
+<li>and all writes previous holder saw </li>
+</ul>
+
+<p>How to track what writes contributed to a write?</p>
+
+<ul>
+<li>Number each machine's releases -- "interval" numbers</li>
+<li>Each machine tracks highest write it has seen from each other machine
+<ul>
+<li>a "Vector Timestamp"</li>
+</ul></li>
+<li>Tag each release with current VT</li>
+<li>On acquire, tell previous holder your VT
+<ul>
+<li>difference indicates which writes need to be sent</li>
+</ul></li>
+<li>(annotate previous example)</li>
+</ul>
+
+<p>VTs order writes to same variable by different machines:</p>
+
+<pre><code>M0: a1 x=1 r1  a2 y=9 r2
+M1:              a1 x=2 r1
+M2:                           a1 a2 z = x + y r2 r1
+
+M2 is going to hear "x=1" from M0, and "x=2" from M1.
+TODO: what about y?
+</code></pre>
+
+<p>How does M2 know what to do?</p>
+
+<p>Could the VTs for two values of the same variable not be ordered?</p>
+
+<pre><code>M0: a1 x=1 r1
+M1:              a2 x=2 r2
+M2:                           a1 a2 print x r2 r1
+</code></pre>
+
+<h3>Summary of programmer rules / system guarantees</h3>
+
+<ol>
+<li>Each shared variable protected by some lock</li>
+<li>Lock before writing a shared variable to order writes to same var., 
+ otherwise "latest value" not well defined</li>
+<li>Lock before reading a shared variable to get the latest version</li>
+<li>If no lock for read, guaranteed to see values that
+ contributed to the variables you did lock</li>
+</ol>
+
+<p>Example of when LRC might work too hard.</p>
+
+<pre><code>M0: a2 z=99 r2  a1 x=1 r1
+M1:                            a1 y=x r1
+</code></pre>
+
+<p>TreadMarks will send <code>z</code> to M1, because it comes before <code>x=1</code> in VT order.</p>
+
+<ul>
+<li>Assuming x and z are on the same page.</li>
+<li>Even if on different pages, M1 must invalidate z's page.</li>
+<li>But M1 doesn't use z.</li>
+<li>How could a system understand that z isn't needed?
+<ul>
+<li>Require locking of all data you read</li>
+<li><code>=&gt;</code> Relax the causal part of the LRC model</li>
+</ul></li>
+</ul>
+
+<p><strong>Q:</strong> Could TreadMarks work without using VM page protection?</p>
+
+<ul>
+<li>it uses VM to
+<ul>
+<li>detect writes to avoid making hidden copies (for diffs) if not needed</li>
+<li>detect reads to pages => know whether to fetch a diff</li>
+</ul></li>
+<li>neither is really crucial</li>
+<li>so TM doesn't depend on VM as much as IVY does
+<ul>
+<li>IVY used VM faults to decide what data has to be moved, and when</li>
+<li>TM uses acquire()/release() and diffs for that purpose</li>
+</ul></li>
+</ul>
+
+<h3>Performance?</h3>
+
+<p>Figure 3 shows mostly good scaling</p>
+
+<ul>
+<li>is that the same as "good"?</li>
+<li>though apparently Water does lots of locking / sharing</li>
+</ul>
+
+<p>How close are they to best possible performance?</p>
+
+<ul>
+<li>maybe Figure 5 implies there is only about 20% fat to be cut</li>
+</ul>
+
+<p>Does LRC beat previous DSM schemes?</p>
+
+<ul>
+<li>they only compare against their own straw-man eager realease consistency (ERC)
+<ul>
+<li>not against best known prior work</li>
+</ul></li>
+<li>Figure 9 suggests not much win, even for Water</li>
+</ul>
+
+<h3>Has DSM been successful?</h3>
+
+<ul>
+<li>clusters of cooperating machines are hugely successful</li>
+<li>DSM not so much
+<ul>
+<li>main justification is transparency for existing threaded code</li>
+<li>that's not interesting for new apps</li>
+<li>and transparency makes it hard to get high performance</li>
+</ul></li>
+<li>MapReduce or message-passing or shared storage more common than DSM</li>
+</ul>

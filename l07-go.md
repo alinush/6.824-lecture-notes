@@ -150,4 +150,3 @@ Q&A
        + Go feels just as light but statically type checked
  - Studies about benefits of Go?
    + not a lot of data collected
- - 
