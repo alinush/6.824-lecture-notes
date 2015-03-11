@@ -15,8 +15,9 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 6: [Raft](l06-raft.html): Raft, a more understandable consensus algorithm
  * Lecture 7: **Google Go** [_guest lecture_](l07-go.html) by Russ Cox
  * Lecture 8: [Harp](l08-harp.html): distributed file system
- * Lecture 9: [IVY](l09-dist-comp-seq-consistency.html): Ivy, a distributed shared memory system
- * Lecture 10: [TreadMarks](l10-treadmarks.html): TreadMarks distributed shared memory system for commodity hardware and OS's
+ * Lecture 9: [IVY](l09-dist-comp-seq-consistency.html): distributed shared memory, sequential consistency
+ * Lecture 10: [TreadMarks](l10-treadmarks.html): userspace distributed shared memory system, vector timestamps, release consistency (lazy/eager), false sharing, write amplification
+ * Lecture 11: [Ficus](l11-ficus.html): optimistic concurrency control, vector timestamps, conflict resolution
 
 Papers
 ------
