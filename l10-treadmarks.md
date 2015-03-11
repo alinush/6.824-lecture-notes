@@ -79,7 +79,11 @@ Performance of DSM is limited by memory consistency
 Treadmarks high level goals?
 
  - Better DSM performance
- - Run existing parallel code
+ - Run existing parallel code (multithreaded)
+   + this code already has locks
+   + TreadMarks will run each thread/process on a separate machine and
+     let it access the DSM.
+   + TreadMarks takes advantage that the code already uses locking
 
 What specific problems with previous DSM are they trying to fix?
 
@@ -94,23 +98,25 @@ What specific problems with previous DSM are they trying to fix?
 
  - don't send whole page, just written bytes
 
-### Big idea: write diffs
+### Big idea: write diffs (to fix write amplification)
 
 Example: 
 
-    m1 writes x, m2 writes y
-    m1 writes x, m2 just reads y
-    // TODO: not clear which example the explanations
-    // below refer to
+    m1 and m2 both have x's page as readable
+    m1 writes x
+                m2 just reads x
 
  - on M1 write fault:
-   + tell other hosts to invalidate but keep hidden copy
+   + tell other hosts to invalidate but _keep hidden copy_
    + M1 makes hidden copy as well
- - on M2 fault:
+   + M1 marks the page as R/W
+ - on M2 read fault:
    + M2 asks M1 for recent modifications
    + M1 "diffs" current page against hidden copy
    + M1 send diffs to M2
    + M2 applies diffs to its hidden copy
+   + M2 marks the page as read-only
+   + M1 marks the page as read-only
 
 **Q:** Do write diffs provide sequential consistency?
  - At most one writeable copy, so writes are ordered
@@ -119,9 +125,11 @@ Example:
  - Still sequentially consistent
 
 **Q:** Do write diffs help with false sharing?
+**A:** No, they help with write amplification
 
 Next goal: allow multiple readers+writers to cope with false sharing
 
+ - our solution needs to allow two machines to write the same page
  - `=>` don't invalidate others when a machine writes
  - `=>` don't demote writers to r/o when another machine reads
  - `=>` multiple *different* copies of a page!
@@ -130,12 +138,31 @@ Next goal: allow multiple readers+writers to cope with false sharing
  - but when to send the diffs?
    + no invalidations -> no page faults -> what triggers sending diffs
 
-### Big idea: release consistency (RC)
+...so we come to _release consistency_
 
+### Big idea: (eager) release consistency (RC)
+
+ - _Again:_ what should trigger sending diffs?
+ - Seems like we should be sending the diffs when someone reads the data
+   that was changed. How can we tell someone's reading the data if we
+   won't get a read fault because we did not invalidate other people's
+   pages when it was written by one person?
  - no-one should read data w/o holding a lock!
    + so let's assume a lock server
- - send out write diffs on release
+ - send out write diffs on release (unlock)
    + to *all* machines with a copy of the written page(s)
+
+Example:
+
+    lock()
+    x = 1
+    unlock() --> diffs all pages, to detect all the writes since
+                 the last unlock
+             --> sends diffs to *all* machines
+
+**Q:** Why detect all writes since the last `unlock()` and not the last `lock()`?
+
+**A:** See causal consistency discussion below.
 
 Example 1 (RC and false sharing)
 
@@ -156,12 +183,14 @@ What does RC do?
 **Q:** What is the performance benefit of RC?
 
  - What does IVY do with Example 1?
+   + if `x` and `y` are on the same page, page is bounced back between `M0` and `M1`
  - multiple machines can have copies of a page, even when 1 or more writes
    + `=>` no bouncing of pages due to false sharing
    + `=>` read copies can co-exist with writers
 
 **Q:** Is RC sequentially consistent? No!
 
+ - in SC, a read sees the latest write
  - M1 won't see M0's writes until M0 releases a lock
    + i.e. M1 can see a stale copy of x, which wasn't allowed under seq const
  - so machines can temporarily disagree on memory contents
@@ -179,7 +208,11 @@ What does RC do?
 
 ### Big idea: lazy release consistency (LRC)
 
- - only send write diffs to next acquirer of released lock
+ - one problem is that when we `unlock()` we update everybody,
+   but now everyone might need the changed data
+ - only send write diffs to next acquirer of released lock (
+   + (i.e. when someone calls `lock()` and they need updates to the 
+      data)
  - lazier than RC in two ways:
    + release does nothing, so maybe defer work to future release
    + sends write diffs just to acquirer, not everyone
@@ -194,13 +227,22 @@ Example 2 (lazyness)
 
 What does LRC do?
 
+ + M2 asks the lock manager who the previous holder of lock 1 was
+   + it was M1
  + M2 only asks previous holder of lock 1 for write diffs
- + M2 does not see M1's modification to y, even though on same page
+ + M2 does not see M1's modification to `y`, even though on same page
    - because it did not acquire lock 2 using `a2`
 
 What does RC do?
 
+ + RC would have broadcast all changes on `x` and `y` to everyone
+
 What does IVY do?
+
+ + IVY would invalidate pages and ensure only the writer has a write-only
+   copy
+ + on reads, the written page is turned to read only and the data is 
+   fetched by the readers
 
 **Q:** What's the performance win from LRC?
 
@@ -210,7 +252,9 @@ What does IVY do?
 
 **Q:** Does LRC provide the same consistency model as RC?
 
- - no: LRC hides some writes that RC reveals
+ - **No!** LRC hides some writes that RC reveals
+ - Note: if you use locks correctly, then you should not notice the differences
+   between (E)RC and LRC
  - in above example, RC reveals `y=1` to M2, LRC does not reveal
    + because RC broadcasts changes on a lock release
  - so `"M2: print x, y"` might print fresh data for RC, stale for LRC
@@ -218,6 +262,9 @@ What does IVY do?
 
 **Q:** Is LRC a win over IVY if each variable on a separate page?
 
+ - IVY doesn't move data until the program tries to read it
+   + So Ivy is pretty lazy already
+ - Robert: TreadMarks is only worth it pages are big
  - Or a win over IVY plus write diffs?
 
 Do we think all threaded/locking code will work with LRC?
@@ -229,7 +276,7 @@ Example 3 (causal anomaly)
 
     M0: a1 x=1 r1
     M1:             a1 a2 y=x r2 r1
-    M2:                             a2 print x, y r2
+    M2:                               a2 print x, y r2
 
 What's the potential problem here?
 
@@ -241,7 +288,19 @@ A violation of "causal consistency":
 
  - If write W1 contributed to write W2, everyone sees W1 before W2
   
-TreadMarks provides causal consistency:
+
+Example 4 (there's an argument that this is _natural cod_):
+    
+    M0: x=7    a1 y=&x r1
+    M1:                     a1 a2 z=y r2 r1  
+    M2:                                       a2 print *z r2
+
+In example 4, it's not clear if M2 will learn from M1 the writes that M0 also did
+and contributed to `y=&x`.
+
+ - for instance, if `x` was 1 before it was changed by M0, will M2 see this when it prints `*z`
+
+TreadMarks provides **causal consistency**:
 
  - when you acquire a lock,
  - you see all writes by previous holder
@@ -251,11 +310,15 @@ How to track what writes contributed to a write?
 
  - Number each machine's releases -- "interval" numbers
  - Each machine tracks highest write it has seen from each other machine
+   + highest write = the interval # of the last write that machine is aware of
    + a "Vector Timestamp"
  - Tag each release with current VT
  - On acquire, tell previous holder your VT
    + difference indicates which writes need to be sent
  - (annotate previous example)
+ - when can you throw diffs away?
+   + seems like you need to globally know what everyone knows about
+   + see "Garbage Collection" section from paper
 
 VTs order writes to same variable by different machines:
 

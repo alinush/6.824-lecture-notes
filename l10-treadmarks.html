@@ -106,7 +106,13 @@
 
 <ul>
 <li>Better DSM performance</li>
-<li>Run existing parallel code</li>
+<li>Run existing parallel code (multithreaded)
+<ul>
+<li>this code already has locks</li>
+<li>TreadMarks will run each thread/process on a separate machine and
+let it access the DSM.</li>
+<li>TreadMarks takes advantage that the code already uses locking</li>
+</ul></li>
 </ul>
 
 <p>What specific problems with previous DSM are they trying to fix?</p>
@@ -128,28 +134,30 @@
 <li>don't send whole page, just written bytes</li>
 </ul>
 
-<h3>Big idea: write diffs</h3>
+<h3>Big idea: write diffs (to fix write amplification)</h3>
 
 <p>Example: </p>
 
-<pre><code>m1 writes x, m2 writes y
-m1 writes x, m2 just reads y
-// TODO: not clear which example the explanations
-// below refer to
+<pre><code>m1 and m2 both have x's page as readable
+m1 writes x
+            m2 just reads x
 </code></pre>
 
 <ul>
 <li>on M1 write fault:
 <ul>
-<li>tell other hosts to invalidate but keep hidden copy</li>
+<li>tell other hosts to invalidate but <em>keep hidden copy</em></li>
 <li>M1 makes hidden copy as well</li>
+<li>M1 marks the page as R/W</li>
 </ul></li>
-<li>on M2 fault:
+<li>on M2 read fault:
 <ul>
 <li>M2 asks M1 for recent modifications</li>
 <li>M1 "diffs" current page against hidden copy</li>
 <li>M1 send diffs to M2</li>
 <li>M2 applies diffs to its hidden copy</li>
+<li>M2 marks the page as read-only</li>
+<li>M1 marks the page as read-only</li>
 </ul></li>
 </ul>
 
@@ -159,11 +167,13 @@ m1 writes x, m2 just reads y
  - Readable copies are up to date, so no stale reads
  - Still sequentially consistent</p>
 
-<p><strong>Q:</strong> Do write diffs help with false sharing?</p>
+<p><strong>Q:</strong> Do write diffs help with false sharing?
+<strong>A:</strong> No, they help with write amplification</p>
 
 <p>Next goal: allow multiple readers+writers to cope with false sharing</p>
 
 <ul>
+<li>our solution needs to allow two machines to write the same page</li>
 <li><code>=&gt;</code> don't invalidate others when a machine writes</li>
 <li><code>=&gt;</code> don't demote writers to r/o when another machine reads</li>
 <li><code>=&gt;</code> multiple <em>different</em> copies of a page!
@@ -177,18 +187,38 @@ m1 writes x, m2 just reads y
 </ul></li>
 </ul>
 
-<h3>Big idea: release consistency (RC)</h3>
+<p>...so we come to <em>release consistency</em></p>
+
+<h3>Big idea: (eager) release consistency (RC)</h3>
 
 <ul>
+<li><em>Again:</em> what should trigger sending diffs?</li>
+<li>Seems like we should be sending the diffs when someone reads the data
+that was changed. How can we tell someone's reading the data if we
+won't get a read fault because we did not invalidate other people's
+pages when it was written by one person?</li>
 <li>no-one should read data w/o holding a lock!
 <ul>
 <li>so let's assume a lock server</li>
 </ul></li>
-<li>send out write diffs on release
+<li>send out write diffs on release (unlock)
 <ul>
 <li>to <em>all</em> machines with a copy of the written page(s)</li>
 </ul></li>
 </ul>
+
+<p>Example:</p>
+
+<pre><code>lock()
+x = 1
+unlock() --&gt; diffs all pages, to detect all the writes since
+             the last unlock
+         --&gt; sends diffs to *all* machines
+</code></pre>
+
+<p><strong>Q:</strong> Why detect all writes since the last <code>unlock()</code> and not the last <code>lock()</code>?</p>
+
+<p><strong>A:</strong> See causal consistency discussion below.</p>
 
 <p>Example 1 (RC and false sharing)</p>
 
@@ -214,7 +244,10 @@ M1: a2 for(...) y++ r2  a1 print x, y r1
 <p><strong>Q:</strong> What is the performance benefit of RC?</p>
 
 <ul>
-<li>What does IVY do with Example 1?</li>
+<li>What does IVY do with Example 1?
+<ul>
+<li>if <code>x</code> and <code>y</code> are on the same page, page is bounced back between <code>M0</code> and <code>M1</code></li>
+</ul></li>
 <li>multiple machines can have copies of a page, even when 1 or more writes
 <ul>
 <li><code>=&gt;</code> no bouncing of pages due to false sharing</li>
@@ -225,6 +258,7 @@ M1: a2 for(...) y++ r2  a1 print x, y r1
 <p><strong>Q:</strong> Is RC sequentially consistent? No!</p>
 
 <ul>
+<li>in SC, a read sees the latest write</li>
 <li>M1 won't see M0's writes until M0 releases a lock
 <ul>
 <li>i.e. M1 can see a stale copy of x, which wasn't allowed under seq const</li>
@@ -252,7 +286,13 @@ M1: a2 for(...) y++ r2  a1 print x, y r1
 <h3>Big idea: lazy release consistency (LRC)</h3>
 
 <ul>
-<li>only send write diffs to next acquirer of released lock</li>
+<li>one problem is that when we <code>unlock()</code> we update everybody,
+but now everyone might need the changed data</li>
+<li>only send write diffs to next acquirer of released lock (
+<ul>
+<li>(i.e. when someone calls <code>lock()</code> and they need updates to the 
+data)</li>
+</ul></li>
 <li>lazier than RC in two ways:
 <ul>
 <li>release does nothing, so maybe defer work to future release</li>
@@ -272,8 +312,12 @@ M2:                     a1 print x,y r1
 <p>What does LRC do?</p>
 
 <ul>
+<li>M2 asks the lock manager who the previous holder of lock 1 was
+<ul>
+<li>it was M1</li>
+</ul></li>
 <li>M2 only asks previous holder of lock 1 for write diffs</li>
-<li>M2 does not see M1's modification to y, even though on same page
+<li>M2 does not see M1's modification to <code>y</code>, even though on same page
 <ul>
 <li>because it did not acquire lock 2 using <code>a2</code></li>
 </ul></li>
@@ -281,7 +325,18 @@ M2:                     a1 print x,y r1
 
 <p>What does RC do?</p>
 
+<ul>
+<li>RC would have broadcast all changes on <code>x</code> and <code>y</code> to everyone</li>
+</ul>
+
 <p>What does IVY do?</p>
+
+<ul>
+<li>IVY would invalidate pages and ensure only the writer has a write-only
+copy</li>
+<li>on reads, the written page is turned to read only and the data is 
+fetched by the readers</li>
+</ul>
 
 <p><strong>Q:</strong> What's the performance win from LRC?</p>
 
@@ -294,7 +349,9 @@ M2:                     a1 print x,y r1
 <p><strong>Q:</strong> Does LRC provide the same consistency model as RC?</p>
 
 <ul>
-<li>no: LRC hides some writes that RC reveals</li>
+<li><strong>No!</strong> LRC hides some writes that RC reveals</li>
+<li>Note: if you use locks correctly, then you should not notice the differences
+between (E)RC and LRC</li>
 <li>in above example, RC reveals <code>y=1</code> to M2, LRC does not reveal
 <ul>
 <li>because RC broadcasts changes on a lock release</li>
@@ -308,6 +365,11 @@ M2:                     a1 print x,y r1
 <p><strong>Q:</strong> Is LRC a win over IVY if each variable on a separate page?</p>
 
 <ul>
+<li>IVY doesn't move data until the program tries to read it
+<ul>
+<li>So Ivy is pretty lazy already</li>
+</ul></li>
+<li>Robert: TreadMarks is only worth it pages are big</li>
 <li>Or a win over IVY plus write diffs?</li>
 </ul>
 
@@ -322,7 +384,7 @@ M2:                     a1 print x,y r1
 
 <pre><code>M0: a1 x=1 r1
 M1:             a1 a2 y=x r2 r1
-M2:                             a2 print x, y r2
+M2:                               a2 print x, y r2
 </code></pre>
 
 <p>What's the potential problem here?</p>
@@ -341,7 +403,21 @@ the changes to <code>x</code></li>
 <li>If write W1 contributed to write W2, everyone sees W1 before W2</li>
 </ul>
 
-<p>TreadMarks provides causal consistency:</p>
+<p>Example 4 (there's an argument that this is <em>natural cod</em>):</p>
+
+<pre><code>M0: x=7    a1 y=&amp;x r1
+M1:                     a1 a2 z=y r2 r1  
+M2:                                       a2 print *z r2
+</code></pre>
+
+<p>In example 4, it's not clear if M2 will learn from M1 the writes that M0 also did
+and contributed to <code>y=&amp;x</code>.</p>
+
+<ul>
+<li>for instance, if <code>x</code> was 1 before it was changed by M0, will M2 see this when it prints <code>*z</code></li>
+</ul>
+
+<p>TreadMarks provides <strong>causal consistency</strong>:</p>
 
 <ul>
 <li>when you acquire a lock,</li>
@@ -355,6 +431,7 @@ the changes to <code>x</code></li>
 <li>Number each machine's releases -- "interval" numbers</li>
 <li>Each machine tracks highest write it has seen from each other machine
 <ul>
+<li>highest write = the interval # of the last write that machine is aware of</li>
 <li>a "Vector Timestamp"</li>
 </ul></li>
 <li>Tag each release with current VT</li>
@@ -363,6 +440,11 @@ the changes to <code>x</code></li>
 <li>difference indicates which writes need to be sent</li>
 </ul></li>
 <li>(annotate previous example)</li>
+<li>when can you throw diffs away?
+<ul>
+<li>seems like you need to globally know what everyone knows about</li>
+<li>see "Garbage Collection" section from paper</li>
+</ul></li>
 </ul>
 
 <p>VTs order writes to same variable by different machines:</p>

@@ -1,0 +1,489 @@
+<h1>6.824 2015 Lecture 15: Optimism, Causality, Vector Timestamps</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the 6.824 
+<a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from Spring 2015.</p>
+
+<p>Consistency so far:</p>
+
+<ul>
+<li><em>Concurrency</em> forces us to to think about meaning of reads/writes</li>
+<li><em>Sequential consistency:</em> everyone sees same read/write order (IVY)</li>
+<li><em>Release consistency:</em> everyone sees writes in unlock order (TreadMarks)</li>
+</ul>
+
+<p>Sequential and release consistency are slow:</p>
+
+<ul>
+<li>in general, must ask before each operation</li>
+<li>IVY: read faults and write faults -> ask manager</li>
+<li>TreadMarks: acquire and release -> ask lock manager</li>
+<li>Can we get better performance by weakening consistency?</li>
+</ul>
+
+<p>Paxos:</p>
+
+<ul>
+<li>Also slow; several messages to reach agreement.
+<ul>
+<li>More than IVY+TreadMarks</li>
+</ul></li>
+<li>Also, "low" availability
+<ul>
+<li>If no majority, no progress.</li>
+</ul></li>
+<li>Not suitable for disconnected operation. </li>
+</ul>
+
+<h2>Optimistic Concurrency Control</h2>
+
+<ul>
+<li>Do the operation now (e.g., read/write cached copy)</li>
+<li>Check if it was OK later</li>
+<li>Recover if not OK</li>
+</ul>
+
+<p>A simple example -- optimistic peer-to-peer chat</p>
+
+<ul>
+<li>We each have a computer attached to internet</li>
+<li>When I type something, send msg. to each participant</li>
+<li>Recv msg -> add to end of chat window</li>
+</ul>
+
+<p>Do we care about message ordering for chat?</p>
+
+<ul>
+<li>Network may deliver in different order at different participants</li>
+<li>Joe: The answer is 40</li>
+<li>Fred: No, it's 41</li>
+<li>Alice: That's correct</li>
+<li>Maybe Sam sees different order:
+<ul>
+<li>Joe: 40</li>
+<li>Alice: That's correct</li>
+</ul></li>
+</ul>
+
+<p>What went wrong in this example?</p>
+
+<ul>
+<li>Alice "computed" her message based on certain inputs</li>
+<li>Sam can only interpret if he has seen those inputs too</li>
+</ul>
+
+<p><strong>Definition:</strong> <code>x</code> causally precedes <code>y</code></p>
+
+<ul>
+<li><code>x</code> precedes <code>y</code> if:
+<ul>
+<li>M0 does <code>x</code>, then M0 does <code>y</code></li>
+<li>M0 does <code>x</code>, M0 sends msg to M1, M1 does <code>y</code></li>
+</ul></li>
+<li><a href="https://en.wikipedia.org/wiki/Transitive_closure">transitive closure</a></li>
+<li><code>x</code> and <code>y</code> are generally writes, or msgs, or file versions</li>
+<li>also "<code>y</code> causally depends on <code>x</code>"</li>
+</ul>
+
+<p><strong>Definition:</strong> causal consistency</p>
+
+<ul>
+<li>if <code>x</code> causally precedes <code>y</code>, everyone sees <code>x</code> before <code>y</code></li>
+</ul>
+
+<p>Slow implementation of causal consistency</p>
+
+<ul>
+<li>Unique ID for every msg</li>
+<li>Node keeps set of all msg IDs received -- "history"</li>
+<li>When sending <code>m</code>, send current history set, too</li>
+<li>Receiver delays incoming msg <code>m</code> until has received everything in <code>m</code>'s set</li>
+</ul>
+
+<p>History sets will grow huge -- can we abbreviate?</p>
+
+<ul>
+<li>Each node numbers its msgs 1, 2, 3, &amp;c</li>
+<li>Deliver each node's msgs in order</li>
+<li>Then history need only include latest # seen from each node
+<ul>
+<li>H1/4 implies saw 1, 2, 3 also</li>
+</ul></li>
+<li>This notation doesn't grow over time, unlike history sets</li>
+<li>Called a <em>Vector Timestamp</em> or <em>Version Vector</em></li>
+</ul>
+
+<h3>Vector Timestamp</h3>
+
+<ul>
+<li>Each node numbers its own actions (sent msgs, in this case)</li>
+<li>VT is a vector of numbers, one slot per node</li>
+<li>Each message sent out with a VT</li>
+<li><code>VT[i]=x =&gt;</code> sender had seen all msgs from node <code>i</code> up through <code>#x</code></li>
+</ul>
+
+<p>VT comparisons</p>
+
+<ul>
+<li>to answer "should msg A be displayed before msg B?"</li>
+<li>let <code>a</code> and <code>b</code> denote the VTs associated with msgs <code>A</code> and <code>B</code></li>
+<li>we can reason about causality (i.e. is <code>a &lt; b</code> or are they concurrent <code>a || b</code>)</li>
+<li>four situations: <code>a &lt; b, a || b</code></li>
+<li><code>a &lt; b</code> if two conditions hold:
+<ol>
+<li>For all hosts <code>i</code>:
+<ul>
+<li><code>a[i] &lt;= b[i]</code>
+<ul>
+<li>i.e. <code>a</code> summarizes a proper prefix of <code>b</code></li>
+<li>i.e. either
+<ul>
+<li><code>b</code>'s sender and <code>a</code>'s sender have both seen the same # of messages from host <code>i</code></li>
+<li><code>b</code>'s sender has seen more recent message from host <code>i</code> than <code>a</code>'s sender has seen</li>
+</ul></li>
+</ul></li>
+</ul></li>
+<li><em>AND</em> there exists <code>j, s.t. a[j] &lt; b[j]</code>
+<ul>
+<li>i.e. <code>a</code> causally precedes <code>b</code>
+<ul>
+<li><code>b</code>'s sender has <em>definitely</em> seen more recent message from host <code>i</code> than <code>a</code>'s sender has seen</li>
+</ul></li>
+</ul></li>
+</ol></li>
+<li><code>a || b</code> if:
+<ul>
+<li>exists i,j: <code>a[i] &lt; b[i]</code> and <code>a[j] &gt; b[j]</code></li>
+<li>i.e. neither summarizes a prefix of the other</li>
+<li>i.e. neither causally precedes the other</li>
+</ul></li>
+</ul>
+
+<p>Many systems use VT variants, but for somewhat different purposes</p>
+
+<ul>
+<li>TreadMarks, Ficus, Bayou, Dynamo, &amp;c</li>
+<li>compact way to say <em>"I've seen everyone's updates up to this point"</em></li>
+<li>compact way to agree whether event <code>x</code> preceded event <code>y</code></li>
+<li>I am pretending there's one fundamental principle here
+<ul>
+<li>but it's only true if you stand fairly far back</li>
+</ul></li>
+</ul>
+
+<h3>CBCAST -- "causal broadcast" protocol</h3>
+
+<ul>
+<li>General-purpose ordering protocol, useful for peer-to-peer chat</li>
+<li>From Cornell Isis research project</li>
+<li>Key property:
+<ul>
+<li>Delivers messages to individual nodes in causal order</li>
+<li>If <code>a</code> causally precedes <code>b</code>, CBCAST delivers <code>a</code> first</li>
+</ul></li>
+</ul>
+
+<p>[diagram: node, msg buf, VC, chat app]</p>
+
+<ul>
+<li>Each node keeps a local vector clock, <code>VC</code>
+<ul>
+<li><code>VCi[j] = k</code> means node <code>i</code> has seen all msgs from <code>j</code> up through message <code>k</code></li>
+</ul></li>
+<li><code>send(m)</code> at node <code>i</code>:
+<ul>
+<li><code>VCi[i] += 1</code></li>
+<li><code>broadcast(m, i, VCi)</code></li>
+</ul></li>
+<li>on <code>receive(m, i, mv)</code> at node <code>j</code>:
+<ul>
+<li><code>j</code>'s CBCAST library buffers the message</li>
+<li>release to application only when:
+<ul>
+<li><code>mv &lt;= VCj</code>, except <code>mv[i] = VCj[i] + 1</code></li>
+<li>i.e. node <code>j</code> has seen every msg that causally precedes <code>m</code>
+<code>VCj[i] = mv[i]</code></li>
+<li>so msgs will reflect receipt of <code>m</code></li>
+</ul></li>
+</ul></li>
+</ul>
+
+<p>Example:</p>
+
+<pre><code>    All VCs start &lt;0,0,0&gt;
+    M0 sends &lt;1,0,0&gt;
+    M1 receives &lt;1,0,0&gt;
+    M1 sends &lt;1,1,0&gt;
+    M2 receives &lt;1,1,0&gt; -- must delay
+    M2 receives &lt;1,0,0&gt; -- can process, unblocks other msg
+</code></pre>
+
+<p>Why fast?</p>
+
+<ul>
+<li>No central manager, no global order</li>
+<li>If no causal dependencies, CBCAST doesn't delay messages</li>
+<li>Example:
+<ul>
+<li><code>M0 sends &lt;1,0&gt;</code></li>
+<li><code>M1 sends &lt;0,1&gt;</code></li>
+<li>Receivers are allowed to deliver in either order</li>
+</ul></li>
+</ul>
+
+<p>Causal consistency still allows more surprises than sequential</p>
+
+<ul>
+<li>Sam can still see:
+<ul>
+<li>Joe: 40</li>
+<li>Fred: 41</li>
+<li>Bob: 42</li>
+<li>Alice: That's correct</li>
+</ul></li>
+<li>Did she mean 42 or 41?</li>
+<li>Causal consistency only says Alice's msg will be delivered after
+<ul>
+<li>all msgs she had seen when she sent it</li>
+</ul></li>
+<li><em>Not</em> that it will be delivered before all msgs she hadn't seen</li>
+</ul>
+
+<p>TreadMarks uses VTs to order writes to same variable by different machines:</p>
+
+<pre><code>  M0: a1 x=1 r1    a2 y=9 r2
+  M1:              a1 x=2 r1
+  M2:                           a1 a2 z=x+y r2 r1
+
+  Could M2 hear x=2 from M1, then x=1 from M0?
+  How does M2 know what to do?
+</code></pre>
+
+<p>VTs are often used for optimistic updating of replicated data</p>
+
+<ul>
+<li>Everyone has a copy, anyone can write</li>
+<li>Don't want IVY-style MGR or locking: network delays, failures</li>
+<li>Need to sync replicas, accept only "newest" data, detect conflicts</li>
+<li>File sync (Ficus, Coda, Rumor)</li>
+<li>Distributed DBs (Amazon Dynamo, Voldemort, Riak)</li>
+</ul>
+
+<h2>File synchronization -- e.g. Ficus</h2>
+
+<ul>
+<li>Multiple computers have a copy of all files</li>
+<li>Each can modify its local copy</li>
+<li>Merge changes later -- optimistic</li>
+</ul>
+
+<p>Scenario:</p>
+
+<ul>
+<li>user has files replicated at work, at home, on laptop</li>
+<li>hosts may be off, on airplane, &amp;c -- not always on Internet</li>
+<li>work on <code>H1</code> for a while, sync changes to <code>H2</code></li>
+<li>work on <code>H2</code>, sync changes to <code>H3</code></li>
+<li>work on <code>H3</code>, sync to <code>H1</code></li>
+<li><strong>Overall goal:</strong> push changes around to keep machines identical</li>
+</ul>
+
+<p>Constraint: No Lost Updates</p>
+
+<ul>
+<li>Only OK for sync to copy version <code>x2</code> over version <code>x1</code> if
+<ul>
+<li><code>x2</code> includes all updates that are in <code>x1</code>.</li>
+</ul></li>
+</ul>
+
+<p>Example 1:</p>
+
+<pre><code>  Focus on a single file
+  H1: f=1 -&gt;H2       -&gt;H3
+  H2:           f=2
+  H3:                       -&gt;H2
+
+  What is the right thing to do?
+  Is it enough to simply take file with latest modification time?
+  Yes in this case, as long as you carry them along correctly.
+    I.e. H3 remembers mtime assigned by H1, not mtime of sync.
+</code></pre>
+
+<p>Example 2:</p>
+
+<pre><code>  H1: f=1 -&gt;H2 f=2
+  H2:                  f=0 -&gt;H1
+  H2's mtime will be bigger.
+  Should the file synchronizer use "0" and discard "2"?
+    No! They were conflicting changes. We need to detect this case.
+    Modification times are not enough by themselves
+</code></pre>
+
+<p>What if there were concurrent updates?</p>
+
+<ul>
+<li>So that neither version includes the other's updates?</li>
+<li>Copying would then lose one of the updates</li>
+<li>So sync doesn't copy, declares a "conflict"</li>
+<li>Conflicts are a necessary consequence of optimistic writes</li>
+</ul>
+
+<p>How to decide if one version contains all of another's updates?</p>
+
+<ul>
+<li>We could record each file's entire modification history.</li>
+<li>List of hostname/localtime pairs.</li>
+<li>And carry history along when synchronizing between hosts.</li>
+<li>For example 1:   <code>H2: H1/T1,H2/T2   H3: H1/T1</code></li>
+<li>For example 2:   <code>H1: H1/T1,H1/T2   H2: H1/T1,H2/T3</code></li>
+<li>Then its easy to decide if version <code>x</code> supersedes version <code>y</code>:
+<ul>
+<li>If <code>y</code>'s history is a prefix of <code>x</code>'s history.</li>
+</ul></li>
+</ul>
+
+<p>We can use VTs to compress these histories!</p>
+
+<ul>
+<li>Each host remembers a VT per file</li>
+<li>Number each host's writes to a file (or assign wall-clock times)</li>
+<li>Just remember # of last write from each host</li>
+<li><code>VT[i]=x</code> => file version includes all of host <code>i</code>'s updates through <code>#x</code></li>
+</ul>
+
+<p>VTs for Example 1:</p>
+
+<ul>
+<li>After H1's change: <code>v1=&lt;1,0,0&gt;</code></li>
+<li>After H2's change: <code>v2=&lt;1,1,0&gt;</code></li>
+<li><code>v1 &lt; v2</code>, so H2 ignores H3's copy (no conflict since <code>&lt;</code>)</li>
+<li><code>v2 &gt; v1</code>, so H1/H3 would accept H2's copy (again no conflict)</li>
+</ul>
+
+<p>VTs for Example 2:</p>
+
+<ul>
+<li>After H1's first change: <code>v1=&lt;1,0,0&gt;</code></li>
+<li>After H1's second change: <code>v2=&lt;2,0,0&gt;</code></li>
+<li>After H2's change: <code>v3=&lt;1,1,0&gt;</code></li>
+<li>v3 neither <code>&lt;</code> nor <code>&gt;</code> v1
+<ul>
+<li>thus neither has seen all the other's updates</li>
+<li>thus there's a conflict</li>
+</ul></li>
+</ul>
+
+<p>What if there <em>are</em> conflicting updates?</p>
+
+<ul>
+<li>VTs can detect them, but then what?</li>
+<li>Depends on the application.</li>
+<li><em>Easy:</em> mailbox file with distinct immutable messages, just union.</li>
+<li><em>Medium:</em> changes to different lines of a C source file (diff+patch).</li>
+<li><em>Hard:</em> changes to the same line of C source.</li>
+<li>Reconciliation must be done manually for the hard cases.</li>
+<li>Today's paper is all about reconciling conflicts</li>
+</ul>
+
+<p>How to think about VTs for file synchronization?</p>
+
+<ul>
+<li>They detect whether there was a serial order of versions</li>
+<li>I.e. when I modified the file, had I already seen your modification?
+<ul>
+<li>If yes, no conflict</li>
+<li>If no, conflict</li>
+</ul></li>
+<li>Or:
+<ul>
+<li>A VT summarizes a file's complete version history</li>
+<li>There's no conflict if your version is a prefix of my version</li>
+</ul></li>
+</ul>
+
+<p>What about file deletion?</p>
+
+<ul>
+<li>Can H1 just forget a file's VT if it deletes the file?
+<ul>
+<li>No: when H1 syncs w/ H2, it will look like H2 has a new file.</li>
+</ul></li>
+<li>H1 must remember deleted files' VTs.</li>
+<li>Treat delete like a file modification.
+<ul>
+<li><code>H1: f=1  -&gt;H2</code></li>
+<li><code>H2:           del  -&gt;H1</code></li>
+<li>second sync sees <code>H1:&lt;1,0&gt; H2&lt;1,1&gt;</code>, so delete wins at H1</li>
+</ul></li>
+<li>There can be delete/write conflicts
+<ul>
+<li><code>H1: f=1  -&gt;H2  f=2</code></li>
+<li><code>H2:            del  -&gt;H1</code></li>
+<li><code>H1:&lt;2,0&gt; vs H2:&lt;1,1&gt; -- conflict</code></li>
+<li>Is it OK to delete at H1?</li>
+</ul></li>
+</ul>
+
+<p>How to delete the VTs of deleted files?</p>
+
+<p>Is it enough to wait until all hosts have seen the delete msg?
+ - Sync would carry, for deleted files, set of hosts who have seen del</p>
+
+<p>"Wait until everyone has seen delete" doesn't work:</p>
+
+<ul>
+<li><code>H1:                           -&gt;H3        forget</code></li>
+<li><code>H2: f=1 -&gt;H1,H3 del,seen -&gt;H1                   -&gt;H1</code></li>
+<li><code>H3:                             seen -&gt;H1</code></li>
+<li><code>H2 needs to re-tell H1 about f, deletion, and f's VT</code>
+<ul>
+<li>H2 doesn't know that H3 has seen the delete</li>
+<li>So H3 might synchronize with H1 and it <em>would</em> then tell H1 of f</li>
+<li>It would be illegal for to to disappear on H1 and re-appear</li>
+</ul></li>
+<li>So -- this scheme doesn't allow hosts to forget reliably</li>
+</ul>
+
+<p>Working VT GC scheme from Ficus replicated file system</p>
+
+<ul>
+<li><em>Phase 1:</em> accumulate set of nodes that have seen delete
+<ul>
+<li>terminates when == complete set of nodes</li>
+</ul></li>
+<li><em>Phase 2:</em> accumulate set of nodes that have completed Phase 1
+<ul>
+<li>when == all nodes, can totally forget the file</li>
+</ul></li>
+<li>If H1 then syncs against H2,
+<ul>
+<li>H2 must be in Phase 2, or completed Phase 2</li>
+<li>if in Phase 2, H2 knows H1 once saw the delete, so need not tell H1 abt file</li>
+<li>if H2 has completed Phase 2, it doesn't know about the file either</li>
+</ul></li>
+</ul>
+
+<p>A classic problem with VTs:</p>
+
+<ul>
+<li>Many hosts -> big VTs</li>
+<li>Easy for VT to be bigger than the data!</li>
+<li>No very satisfying solution</li>
+</ul>
+
+<p>Many file synchronizers don't use VTs -- e.g. Unison, rsync</p>
+
+<ul>
+<li>File modification times enough if only two parties, or star</li>
+<li>Need to remember "modified since last sync"</li>
+<li>VTs needed if you want any-to-any sync with > 2 hosts</li>
+</ul>
+
+<h2>Summary</h2>
+
+<ul>
+<li>Replication + optimistic updates for speed, high availability</li>
+<li>Causal consistency yields sane order of optimistic updates (CBCAST)</li>
+<li>Causal ordering detects conflicting updates</li>
+<li>Vector Timestamps compactly summarize update histories</li>
+</ul>
