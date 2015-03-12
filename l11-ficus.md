@@ -38,6 +38,15 @@ A simple example -- optimistic peer-to-peer chat
  - When I type something, send msg. to each participant
  - Recv msg -> add to end of chat window
 
+Diagram:
+    
+    m0              m1              m2 
+    \             /\              /\
+     \------------/               /
+      \                          /
+       \------------------------/
+
+
 Do we care about message ordering for chat?
 
  - Network may deliver in different order at different participants
@@ -53,6 +62,29 @@ What went wrong in this example?
  - Alice "computed" her message based on certain inputs
  - Sam can only interpret if he has seen those inputs too
 
+Suppose this is an auction chat program:
+
+    Joe         Fred        Alice
+
+    $10 -->
+                20
+              <-- -->  
+
+                     <-- winner is $20
+
+If there were a 4th person, Sam:
+
+    Joe         Fred        Alice               Sam
+
+    $10 -->                                   sees $10
+                20  
+              <-- -->                         does not see $20 
+
+                     <-- winner is $20 -->    sees winner is $20
+
+So to Sam this might not make sense. His problem is that Sam didn't know
+what Alice knew when she sent her message.
+
 **Definition:** `x` causally precedes `y`
 
  - `x` precedes `y` if:
@@ -66,7 +98,12 @@ What went wrong in this example?
 
  - if `x` causally precedes `y`, everyone sees `x` before `y`
 
-Slow implementation of causal consistency
+Pros, cons:
+
+ - Pro: no single master
+ - Con: not a total order on events
+
+### Slow implementation of causal consistency
 
  - Unique ID for every msg
  - Node keeps set of all msg IDs received -- "history"
@@ -88,6 +125,11 @@ History sets will grow huge -- can we abbreviate?
  - VT is a vector of numbers, one slot per node
  - Each message sent out with a VT
  - `VT[i]=x =>` sender had seen all msgs from node `i` up through `#x`
+ - the assumption here is that a node broadcasts messages to all
+   other nodes (since we're trying to replicate a system effectively)
+ - have to know how many nodes there are in the whole system
+   + otherwise, complicated
+ - VTs get very large when you have thousands of machines
 
 VT comparisons
 
@@ -109,6 +151,7 @@ VT comparisons
    + exists i,j: `a[i] < b[i]` and `a[j] > b[j]`
    + i.e. neither summarizes a prefix of the other
    + i.e. neither causally precedes the other
+     - this is because, as we said before, there's no total order
 
 Many systems use VT variants, but for somewhat different purposes
 
@@ -128,8 +171,22 @@ Many systems use VT variants, but for somewhat different purposes
 
 [diagram: node, msg buf, VC, chat app]
 
+        APP         ^
+             |      |
+        -----|------|-----------
+            \ /     |  CBCAST
+             .   
+        ---------      vector
+        | m3    |      clock
+        ---------      VT 
+        | wait  |
+        ---------
+        | m1    |
+
+
  - Each node keeps a local vector clock, `VC`
    + `VCi[j] = k` means node `i` has seen all msgs from `j` up through message `k`
+   + Summarizes what the application has also seen
  - `send(m)` at node `i`:
    + `VCi[i] += 1`
    + `broadcast(m, i, VCi)`
@@ -141,14 +198,20 @@ Many systems use VT variants, but for somewhat different purposes
        `VCj[i] = mv[i]`
      - so msgs will reflect receipt of `m`
 
+Code:
+    
+    on receive(message m, node i, timestamp v):
+        release when:
+            this node's vector clock VT >= v EXCEPT FOR v[i] = VT[i] + 1
+
 Example:
 
         All VCs start <0,0,0>
-        M0 sends <1,0,0>
-        M1 receives <1,0,0>
-        M1 sends <1,1,0>
-        M2 receives <1,1,0> -- must delay
-        M2 receives <1,0,0> -- can process, unblocks other msg
+        M0 sends msg1 w/ <1,0,0>
+        M1 receives msg1 w/ <1,0,0>
+        M1 sends msg2 w/ <1,1,0>
+        M2 receives msg2 w/ <1,1,0> -- must delay because don't have msg1
+        M2 receives msg1 w/ <1,0,0> -- can process, unblocks other msg
 
 Why fast?
 
@@ -170,6 +233,7 @@ Causal consistency still allows more surprises than sequential
  - Causal consistency only says Alice's msg will be delivered after
    + all msgs she had seen when she sent it
  - *Not* that it will be delivered before all msgs she hadn't seen
+   + `=>` if CBCAST present `x` and then `y` that does *not* imply `x` happened before `y` necessarily
 
 TreadMarks uses VTs to order writes to same variable by different machines:
 
@@ -194,6 +258,12 @@ File synchronization -- e.g. Ficus
  - Multiple computers have a copy of all files
  - Each can modify its local copy
  - Merge changes later -- optimistic
+ - fie synchronization with disconnected operation support
+   + two people edit the same file on two different airplanes :)
+   + when they get back online, server needs to detect this
+   + ...and solve it
+   + ...and not lose updates (lazy server can just throw away
+     one set of changes)
 
 Scenario:
 
@@ -212,9 +282,10 @@ Constraint: No Lost Updates
 Example 1:
 
       Focus on a single file
-      H1: f=1 ->H2       ->H3
-      H2:           f=2
-      H3:                       ->H2
+
+      H1: f=1 \----------\
+      H2:      \->  f=2   \               /--> ???
+      H3:                  \-> tell H2 --/
 
       What is the right thing to do?
       Is it enough to simply take file with latest modification time?
@@ -224,9 +295,14 @@ Example 1:
 
 Example 2:
 
-      H1: f=1 ->H2 f=2
-      H2:                  f=0 ->H1
+       mtime = 10 | mtime = 20 | mtime = 25
+                        
+      H1: f=1 --\       f=2              /-->
+      H2:        \-->             f=0 --/
+      H3: 
+
       H2's mtime will be bigger.
+
       Should the file synchronizer use "0" and discard "2"?
         No! They were conflicting changes. We need to detect this case.
         Modification times are not enough by themselves
@@ -309,6 +385,7 @@ What about file deletion?
 How to delete the VTs of deleted files?
 
 Is it enough to wait until all hosts have seen the delete msg?
+
  - Sync would carry, for deleted files, set of hosts who have seen del
 
 "Wait until everyone has seen delete" doesn't work:
@@ -321,6 +398,13 @@ Is it enough to wait until all hosts have seen the delete msg?
    + So H3 might synchronize with H1 and it *would* then tell H1 of f
    + It would be illegal for to to disappear on H1 and re-appear
  - So -- this scheme doesn't allow hosts to forget reliably
+
+Diagram:
+
+                     | Phase 1              | Phase 2               | Phase 3 (forget f's VT)
+    H1: del f  \     | seen f  -\->         | done f  -\->          |
+    H2:         \--> | seen f  -/-> (bcast) | done f  -/-> (bcast)  |
+    H3:         |--> | seen f  -\->         | done f  -\->          |
 
 Working VT GC scheme from Ficus replicated file system
 
