@@ -4,7 +4,7 @@ Q1 2014
 1. MapReduce
 ------------
 
-### [Question 1](qs/q14-1-1.png)
+### [Question 1](qs/q1-2014/q14-1-1.png)
 
 **Answer:** The Map jobs are ran in parallel and once they are done, the reduce jobs are ran in parallel as well.
 
@@ -21,7 +21,7 @@ If the count were `c` before the two calls executed, then it will be `c+1` inste
 2. Non-determ. and repl. state mach.
 ------------------------------------
 
-### [Question 2](qs/q14-2-2.png)
+### [Question 2](qs/q1-2014/q14-2-2.png)
 
 **Answer:** In my lab 3, whenever agreement is reached for a certain paxos instance, a Decided message is broadcast to everyone and waited upon for receipt confirmation by everyone. The timestamp can be included in this message. When to generate it? Before a Prepare call. If the proposer's value was the accepted value, then his timestamp is used. If it was another's proposer's value, then the timestamp included with that value should be used.
 
@@ -34,7 +34,7 @@ It seems that the only way to get this to work is to make sure that everything i
 Not quite replicated state machines
 -----------------------------------
 
-### [Question 3](qs/q14-3-3.pdf)
+### [Question 3](qs/q1-2014/q14-3-3.pdf)
 
 Q: What does `PutHash(k, v)` do?
 A: returns old `db[k]` and sets new `db[k] = hash(db[k] + v)`. Can be used to chain all values for a key together. Useful when testing apparently
@@ -79,7 +79,7 @@ Answer:
 Flat datacenter storage
 -----------------------
 
-### [Question 4](qs/q14-4-4.png)
+### [Question 4](qs/q1-2014/q14-4-4.png)
 
 **Answer:** This is silly: If Ben's design returns to the client after hearing from JUST one server, then the blob's size is NOT REALLY extended: i.e. there are still servers that don't know about that new size. So when the client will contact them with a write to tract n-1 just after ExtendBlobSize(n), a bunch of these writes will fail because the servers will return an out-of-bounds error.
 
@@ -87,6 +87,137 @@ Literally, ANY application that calls extend and then write will fail.
 
 **Their answer:** If two separate clients try to extend the size of the blob by 1 tract (paper doesn't make it clear if you specify new size or additional size), and they talk to different servers and both reply "Extended successfully" back, then when the two clients will write this newly added tract, they will overwrite each other's writes, instead of writing separately to tract `n+1` and `n+2` (assuming `n` was the size of the blob before extending).
 
-### [Question 5](qs/q14-4-5.png)
+### [Question 5](qs/q1-2014/q14-4-5.png)
 
 **Answer:** Seems like it must reply ABORT to a PREPARE request `r1` when there's another request `r0` that has successfully prepared.
+
+Paxos
+----
+
+### [Question 6](qs/q1-2014/q14-5-6.png)
+
+**Answer:** This is wrong, because acceptors could accept a value that's never been proposed.
+
+Diagram:
+    
+    px -- means server received prepare(n=1)
+    axvy -- means server received accept(n=x, v=y)
+    dx  -- means server received decided(v=x)
+
+    S1: starts proposal loop w/ n = 1
+
+    S1: p1       |              offiline for a while ...
+    S2: p1       |    reboot => na = np = 1, va=nil     | p2 |  a1v<nil> | d<nil>
+    S3:     p1   |    reboot => na = np = 1, va=nil     | p2 |  a1v<nil> | d<nil>
+
+**Their answer:**
+
+    S1: p1        p2    a2v2
+    S2: p1  a1v1                p3 (np=3)  reboot, restore(np=na=3)  p4 (S2 replies w/ na=3,v=1)     a4v1
+    S3: p1        p2    a2v2                                         p4 (S3 replies w/ na=2,v=2)     a4v1
+
+### [Question 7](qs/q1-2014/q14-5-7.png)
+
+**Answer:** Not linearizable because:
+
+    C1 sends a Get() to S1
+    S1 starts Paxos for that Get() at seq 0
+    C2 sends a Put() to S2
+    S1 starts Paxos for that Put(a, "1") at seq 1
+    S1 gets consensus for the Put(a, "1") at seq 1
+    S1 returns success to to C2
+    C2 issues another Put(a, "2"), but it goes to S2
+    S2 starts Paxos for that Put(a, "2") at seq 0
+    S2 gets agreement for that Put(a, "2") at seq 0
+        it won over C1/S1's Get() at seq 0
+    Now the earlier Put() is at seq 1 and the later Put() is at seq 0
+     => not linearizable
+
+### [Question 8](qs/q1-2014/q14-5-8.png)
+
+**Answer:** No EPaxos this semester.
+
+Spanner
+-------
+
+### [Question 9](qs/q1-2014/q14-6-9.png)
+
+**Answer:** TODO for Quiz 2
+
+Harp
+----
+
+### [Question 10](qs/q1-2014/q14-7-10.png)
+
+**Answer:**
+
+    A. True
+    B. False
+    C. True
+    D. True
+    E. False
+
+Q2 2014
+=======
+
+Memory models
+-------------
+
+### Question 1
+
+**Answer:** world
+
+### Question 2
+
+**Answer**: 
+
+ - hello
+ - world
+ - never ending loop because read to done doesn't have to observe the write in the thread
+
+### Question 3
+
+**Answer**: Go's memory model is more similar to release consistency, whereas Ivy's is sequential consistency => if you don't use locks/channels in Go to synchronize reads/writes, then funny things will happen
+
+### Question 4
+
+**Answer:**
+In TreadMarks, the program would loop infinitely, because there's no acquire on a lock for the `done` variable => no one can inform the `done` reader than done has been set to true.
+
+### Question 5
+
+**Answer:**
+Adding a lock around the write and the read to `done` is enough. Or not clear... does causal consistency give you previous writes that did not contribute to the write to `done`? If it does not, then you also need to include the write to `a` under the lock.
+For efficiency, something like a semaphore can be used to make sure the write happens before the read.
+
+Ficus
+-----
+
+### Question 6
+
+**Answer:**
+H4 will have the latest VT [1,1,0,0] so it will print 2 for both cat's
+
+### Question 7
+
+**Answer:**
+[1,1,0,0]
+
+### Question 8
+
+**Answer:**
+[1,0,0,0]
+
+### Question 9
+
+**Answer:**
+
+    h1: f=1, [1,0,0,0] ->h2                                f=3 [2,0,0,0]                  ->h4
+    h2:                     [1,0,0,0] f=2 [1,1,0,0] ->h4
+    h3:
+    h4:                                                    [1,1,0,0] cat f [prints 2]         conflict on f b.c. [2,0,0,0] and [1,1,0,0]
+
+### Question 10 through 22
+
+
+**Answer:** TODO: Next quiz!

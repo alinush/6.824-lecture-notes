@@ -1,2 +1,59 @@
-<p><strong>TODO:</strong> Sequential consistency is going to be on the exam!
-<strong>TODO:</strong> The AnalogicFS paper, read it very carefully and understand it fully; it will definitely show up on the final.</p>
+<p><strong>TODO:</strong> Harp, understand how primary forwards ops to backups and/or witnesses. What happens when some of them fail, etc.</p>
+
+<p><strong>TODO:</strong> Primary backup replication, remind yourself when view is allowed to change.</p>
+
+<p><strong>TODO:</strong> Paxos, try to understand why np/na are needed and what happened if one of them was not used.</p>
+
+<p><strong>TODO:</strong> Raft, all of it.</p>
+
+<p><strong>TODO:</strong> Go's memory model</p>
+
+<p>The actual Go memory model is as follows:
+A read r of a variable v is allowed to observe a write w to v if both of the following hold:</p>
+
+<ol>
+<li>r does not happen before w.</li>
+<li>There is no other write w to v that happens after w but before r.</li>
+</ol>
+
+<p>To guarantee that a read r of a variable v observes a particular write w to v, ensure that w is the
+only write r is allowed to observe. That is, r is guaranteed to observe w if both of the following
+hold:</p>
+
+<ol>
+<li>w happens before r.</li>
+<li>Any other write to the shared variable v either happens before w or after r.</li>
+</ol>
+
+<p>This pair of conditions is stronger than the first pair; it requires that there are no other writes
+happening concurrently with w or r.</p>
+
+<p>Within a single goroutine, there is no concurrency, so the two definitions are equivalent: a read r
+observes the value written by the most recent write w to v. When multiple goroutines access a
+shared variable v, they must use synchronization events to establish happens-before conditions
+that ensure reads observe the desired writes.</p>
+
+<p><strong>TODO:</strong> Write amplification vs. false sharing</p>
+
+<p><strong>TODO:</strong> TreadMarks: lazy release consistency (different than ERC) + causal consistency</p>
+
+<p><strong>TODO:</strong> Causal consistency: Does it ensure previous writes that did NOT contribute to current write
+are also made visible?</p>
+
+<p><strong>TODO:</strong> Vector timestamps and causal consistency</p>
+
+<p><strong>TODO:</strong> Map reduce computation model, remember:
+ - input file is split M ways, 
+ - each split is sent to a <code>Map</code>,
+ - each <code>Map()</code> returns a list of key-value pairs
+   - map1 outputs {(k1, v1), (k2, v2)}
+   - map2 outputs {(k1, v3), (k3, v4)}
+ - key value pairs from <code>Map</code> calls are merged
+ - reduce is called on each key and its values
+   - reduce1 input is {(k1, {v1,v3})}
+   - reduce2 input is {(k2, {v2})}
+   - reduce3 input is {(k3, {v4})}</p>
+
+<p><strong>TODO:</strong> Sequential consistency is going to be on the exam!</p>
+
+<p><strong>TODO:</strong> The AnalogicFS paper, read it very carefully and understand it fully; it will definitely show up on the final.</p>

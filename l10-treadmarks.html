@@ -125,7 +125,7 @@ let it access the DSM.</li>
 <li><strong>Q:</strong> what does IVY do in this situation?</li>
 <li><strong>A:</strong> Ivy will bounce the page between x and y back and forth</li>
 </ul></li>
-<li>write amplification: a one byte write turns into a whole-page transfer</li>
+<li><strong>Write amplification:</strong> a 1-byte write turns into a whole-page transfer</li>
 </ul>
 
 <p><strong>First Goal:</strong> eliminate write amplification</p>
@@ -161,13 +161,16 @@ m1 writes x
 </ul></li>
 </ul>
 
-<p><strong>Q:</strong> Do write diffs provide sequential consistency?
- - At most one writeable copy, so writes are ordered
- - No writing while any copy is readable, so no stale reads
- - Readable copies are up to date, so no stale reads
- - Still sequentially consistent</p>
+<p><strong>Q:</strong> Do write diffs provide sequential consistency?</p>
 
-<p><strong>Q:</strong> Do write diffs help with false sharing?
+<ul>
+<li>At most one writeable copy, so writes are ordered</li>
+<li>No writing while any copy is readable, so no stale reads</li>
+<li>Readable copies are up to date, so no stale reads</li>
+<li>Still sequentially consistent</li>
+</ul>
+
+<p><strong>Q:</strong> Do write diffs help with false sharing? <br />
 <strong>A:</strong> No, they help with write amplification</p>
 
 <p>Next goal: allow multiple readers+writers to cope with false sharing</p>
@@ -287,8 +290,8 @@ M1: a2 for(...) y++ r2  a1 print x, y r1
 
 <ul>
 <li>one problem is that when we <code>unlock()</code> we update everybody,
-but now everyone might need the changed data</li>
-<li>only send write diffs to next acquirer of released lock (
+but not everyone might need the changed data</li>
+<li>only send write diffs to next acquirer of released lock
 <ul>
 <li>(i.e. when someone calls <code>lock()</code> and they need updates to the 
 data)</li>

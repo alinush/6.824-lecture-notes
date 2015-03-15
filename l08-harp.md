@@ -106,7 +106,6 @@ Paper: [Replication in the Harp File System](papers/bliskov-harp.pdf)
      so they can quickly send them to primary for reapplying
      - assumption that reapplying witness logs is faster than copying backup disk
      - assumption that witness logs won't get too big
-
  - The witnesses are one significant difference from Raft.
  - The `b` witnesses do not ordinarily hear about operations or keep state.
  - Why is that OK?
@@ -116,8 +115,9 @@ Paper: [Replication in the Harp File System](papers/bliskov-harp.pdf)
    + If `b` replicas with state do fail, witnesses give the required `b+1` majority.
    + To ensure that only one partition operates -- no split brain.
  - So, for a 3-server system, the witness is there to break ties about
-   + which partition is allowed to operate when primary and backup are
-     in different partitions. The partition with the witness wins.
+   which partition is allowed to operate when primary and backup are
+   in different partitions. 
+   + The partition with the witness wins.
 
 #### Does primary need to send operations to witnesses?
 
@@ -131,19 +131,17 @@ Paper: [Replication in the Harp File System](papers/bliskov-harp.pdf)
    + Those witnesses must record the op, to ensure overlap with any
      - future majority.
    + Thus each "promoted" witness keeps a log.
-
-#### So in a 2b+1 system, a view always has b+1 servers that the primary
-
- - must contact for each op, and that store each op.
+ - So in a 2b+1 system, a view always has b+1 servers that the primary
+   must contact for each op, and that store each op.
 
 Note: somewhat different from Raft
 
-  Raft keeps sending each op to all servers, proceeds when majority answer
-    So leader must keep full log until failed server re-joins
-  Harp eliminates failed server from view, doesn't send to it
-    Only witness has to keep a big log; has special plan (ram, disk, tape).
-  The bigger issue is that it can take a lot of work to bring
-    a re-joining replica up to date; careful design is required.
+ - Raft keeps sending each op to all servers, proceeds when majority answer
+   + So leader must keep full log until failed server re-joins
+ - Harp eliminates failed server from view, doesn't send to it
+   + Only witness has to keep a big log; has special plan (ram, disk, tape).
+ - The bigger issue is that it can take a lot of work to bring
+   a re-joining replica up to date; careful design is required.
 
 #### What's the story about the UPS?
 
@@ -357,7 +355,7 @@ After S1 recovers, with intact disk, but lost memory.
    + Unlike Raft, where leader only elected if it has the best log.
    + Harp must replay log from promoted witness (S4)
  - Could S1 have executed an op just before crashing
-   + that the replicas didn't execute after taking over?
+   that the replicas didn't execute after taking over?
    + No, execution up to CP only, and CP is safe on S2+S3.
 
 New scenario: S2 and S3 are partitioned (but still alive)
@@ -400,6 +398,8 @@ New scenario: S2 and S3 are partitioned (but still alive)
   1. No other view possible.
   2. Know view # of most recent view.
   3. Know all ops from most recent view.
+
+Details:
 
   - (1) is true if you have n+1 nodes in new view.
   - (2) true if you have n+1 nodes that did not lose view # since last view.

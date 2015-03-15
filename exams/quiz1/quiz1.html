@@ -2,7 +2,7 @@
 
 <h2>1. MapReduce</h2>
 
-<h3><a href="qs/q14-1-1.png">Question 1</a></h3>
+<h3><a href="qs/q1-2014/q14-1-1.png">Question 1</a></h3>
 
 <p><strong>Answer:</strong> The Map jobs are ran in parallel and once they are done, the reduce jobs are ran in parallel as well.</p>
 
@@ -19,7 +19,7 @@ Map2: Put(w, c1+1)
 
 <h2>2. Non-determ. and repl. state mach.</h2>
 
-<h3><a href="qs/q14-2-2.png">Question 2</a></h3>
+<h3><a href="qs/q1-2014/q14-2-2.png">Question 2</a></h3>
 
 <p><strong>Answer:</strong> In my lab 3, whenever agreement is reached for a certain paxos instance, a Decided message is broadcast to everyone and waited upon for receipt confirmation by everyone. The timestamp can be included in this message. When to generate it? Before a Prepare call. If the proposer's value was the accepted value, then his timestamp is used. If it was another's proposer's value, then the timestamp included with that value should be used.</p>
 
@@ -31,7 +31,7 @@ Map2: Put(w, c1+1)
 
 <h2>Not quite replicated state machines</h2>
 
-<h3><a href="qs/q14-3-3.pdf">Question 3</a></h3>
+<h3><a href="qs/q1-2014/q14-3-3.pdf">Question 3</a></h3>
 
 <p>Q: What does <code>PutHash(k, v)</code> do?
 A: returns old <code>db[k]</code> and sets new <code>db[k] = hash(db[k] + v)</code>. Can be used to chain all values for a key together. Useful when testing apparently</p>
@@ -76,7 +76,7 @@ A: returns old <code>db[k]</code> and sets new <code>db[k] = hash(db[k] + v)</co
 
 <h2>Flat datacenter storage</h2>
 
-<h3><a href="qs/q14-4-4.png">Question 4</a></h3>
+<h3><a href="qs/q1-2014/q14-4-4.png">Question 4</a></h3>
 
 <p><strong>Answer:</strong> This is silly: If Ben's design returns to the client after hearing from JUST one server, then the blob's size is NOT REALLY extended: i.e. there are still servers that don't know about that new size. So when the client will contact them with a write to tract n-1 just after ExtendBlobSize(n), a bunch of these writes will fail because the servers will return an out-of-bounds error.</p>
 
@@ -84,6 +84,137 @@ A: returns old <code>db[k]</code> and sets new <code>db[k] = hash(db[k] + v)</co
 
 <p><strong>Their answer:</strong> If two separate clients try to extend the size of the blob by 1 tract (paper doesn't make it clear if you specify new size or additional size), and they talk to different servers and both reply "Extended successfully" back, then when the two clients will write this newly added tract, they will overwrite each other's writes, instead of writing separately to tract <code>n+1</code> and <code>n+2</code> (assuming <code>n</code> was the size of the blob before extending).</p>
 
-<h3><a href="qs/q14-4-5.png">Question 5</a></h3>
+<h3><a href="qs/q1-2014/q14-4-5.png">Question 5</a></h3>
 
 <p><strong>Answer:</strong> Seems like it must reply ABORT to a PREPARE request <code>r1</code> when there's another request <code>r0</code> that has successfully prepared.</p>
+
+<h2>Paxos</h2>
+
+<h3><a href="qs/q1-2014/q14-5-6.png">Question 6</a></h3>
+
+<p><strong>Answer:</strong> This is wrong, because acceptors could accept a value that's never been proposed.</p>
+
+<p>Diagram:</p>
+
+<pre><code>px -- means server received prepare(n=1)
+axvy -- means server received accept(n=x, v=y)
+dx  -- means server received decided(v=x)
+
+S1: starts proposal loop w/ n = 1
+
+S1: p1       |              offiline for a while ...
+S2: p1       |    reboot =&gt; na = np = 1, va=nil     | p2 |  a1v&lt;nil&gt; | d&lt;nil&gt;
+S3:     p1   |    reboot =&gt; na = np = 1, va=nil     | p2 |  a1v&lt;nil&gt; | d&lt;nil&gt;
+</code></pre>
+
+<p><strong>Their answer:</strong></p>
+
+<pre><code>S1: p1        p2    a2v2
+S2: p1  a1v1                p3 (np=3)  reboot, restore(np=na=3)  p4 (S2 replies w/ na=3,v=1)     a4v1
+S3: p1        p2    a2v2                                         p4 (S3 replies w/ na=2,v=2)     a4v1
+</code></pre>
+
+<h3><a href="qs/q1-2014/q14-5-7.png">Question 7</a></h3>
+
+<p><strong>Answer:</strong> Not linearizable because:</p>
+
+<pre><code>C1 sends a Get() to S1
+S1 starts Paxos for that Get() at seq 0
+C2 sends a Put() to S2
+S1 starts Paxos for that Put(a, "1") at seq 1
+S1 gets consensus for the Put(a, "1") at seq 1
+S1 returns success to to C2
+C2 issues another Put(a, "2"), but it goes to S2
+S2 starts Paxos for that Put(a, "2") at seq 0
+S2 gets agreement for that Put(a, "2") at seq 0
+    it won over C1/S1's Get() at seq 0
+Now the earlier Put() is at seq 1 and the later Put() is at seq 0
+ =&gt; not linearizable
+</code></pre>
+
+<h3><a href="qs/q1-2014/q14-5-8.png">Question 8</a></h3>
+
+<p><strong>Answer:</strong> No EPaxos this semester.</p>
+
+<h2>Spanner</h2>
+
+<h3><a href="qs/q1-2014/q14-6-9.png">Question 9</a></h3>
+
+<p><strong>Answer:</strong> TODO for Quiz 2</p>
+
+<h2>Harp</h2>
+
+<h3><a href="qs/q1-2014/q14-7-10.png">Question 10</a></h3>
+
+<p><strong>Answer:</strong></p>
+
+<pre><code>A. True
+B. False
+C. True
+D. True
+E. False
+</code></pre>
+
+<h1>Q2 2014</h1>
+
+<h2>Memory models</h2>
+
+<h3>Question 1</h3>
+
+<p><strong>Answer:</strong> world</p>
+
+<h3>Question 2</h3>
+
+<p><strong>Answer</strong>: </p>
+
+<ul>
+<li>hello</li>
+<li>world</li>
+<li>never ending loop because read to done doesn't have to observe the write in the thread</li>
+</ul>
+
+<h3>Question 3</h3>
+
+<p><strong>Answer</strong>: Go's memory model is more similar to release consistency, whereas Ivy's is sequential consistency => if you don't use locks/channels in Go to synchronize reads/writes, then funny things will happen</p>
+
+<h3>Question 4</h3>
+
+<p><strong>Answer:</strong>
+In TreadMarks, the program would loop infinitely, because there's no acquire on a lock for the <code>done</code> variable => no one can inform the <code>done</code> reader than done has been set to true.</p>
+
+<h3>Question 5</h3>
+
+<p><strong>Answer:</strong>
+Adding a lock around the write and the read to <code>done</code> is enough. Or not clear... does causal consistency give you previous writes that did not contribute to the write to <code>done</code>? If it does not, then you also need to include the write to <code>a</code> under the lock.
+For efficiency, something like a semaphore can be used to make sure the write happens before the read.</p>
+
+<h2>Ficus</h2>
+
+<h3>Question 6</h3>
+
+<p><strong>Answer:</strong>
+H4 will have the latest VT [1,1,0,0] so it will print 2 for both cat's</p>
+
+<h3>Question 7</h3>
+
+<p><strong>Answer:</strong>
+[1,1,0,0]</p>
+
+<h3>Question 8</h3>
+
+<p><strong>Answer:</strong>
+[1,0,0,0]</p>
+
+<h3>Question 9</h3>
+
+<p><strong>Answer:</strong></p>
+
+<pre><code>h1: f=1, [1,0,0,0] -&gt;h2                                f=3 [2,0,0,0]                  -&gt;h4
+h2:                     [1,0,0,0] f=2 [1,1,0,0] -&gt;h4
+h3:
+h4:                                                    [1,1,0,0] cat f [prints 2]         conflict on f b.c. [2,0,0,0] and [1,1,0,0]
+</code></pre>
+
+<h3>Question 10 through 22</h3>
+
+<p><strong>Answer:</strong> TODO: Next quiz!</p>

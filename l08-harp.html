@@ -132,11 +132,10 @@ act as a primary</li>
 </ul></li>
 <li>a second use of the witness is to record operations, once say it's part of
 the partition <code>B, W</code> so that a majority of nodes have the latest operations</li>
-<li><p>a final function of the witness is that when the primary comes back to life,
+<li>a final function of the witness is that when the primary comes back to life,
 the witness has been logging every single operation issued since primary
 disappeared, so witness can reply every op to primary and will be up to
-date w.r.t. all the operations executed</p>
-
+date w.r.t. all the operations executed
 <ul>
 <li>efficiently bring primary up to speed</li>
 <li>the backup could do that too, but Harp is designed so that
@@ -147,7 +146,7 @@ so they can quickly send them to primary for reapplying
 <li>assumption that witness logs won't get too big</li>
 </ul></li>
 </ul></li>
-<li><p>The witnesses are one significant difference from Raft.</p></li>
+<li>The witnesses are one significant difference from Raft.</li>
 <li>The <code>b</code> witnesses do not ordinarily hear about operations or keep state.</li>
 <li>Why is that OK?
 <ul>
@@ -160,9 +159,10 @@ so they can quickly send them to primary for reapplying
 <li>To ensure that only one partition operates -- no split brain.</li>
 </ul></li>
 <li>So, for a 3-server system, the witness is there to break ties about
+which partition is allowed to operate when primary and backup are
+in different partitions. 
 <ul>
-<li>which partition is allowed to operate when primary and backup are
-in different partitions. The partition with the witness wins.</li>
+<li>The partition with the witness wins.</li>
 </ul></li>
 </ul>
 
@@ -187,22 +187,24 @@ in different partitions. The partition with the witness wins.</li>
 </ul></li>
 <li>Thus each "promoted" witness keeps a log.</li>
 </ul></li>
-</ul>
-
-<h4>So in a 2b+1 system, a view always has b+1 servers that the primary</h4>
-
-<ul>
-<li>must contact for each op, and that store each op.</li>
+<li>So in a 2b+1 system, a view always has b+1 servers that the primary
+must contact for each op, and that store each op.</li>
 </ul>
 
 <p>Note: somewhat different from Raft</p>
 
-<p>Raft keeps sending each op to all servers, proceeds when majority answer
-    So leader must keep full log until failed server re-joins
-  Harp eliminates failed server from view, doesn't send to it
-    Only witness has to keep a big log; has special plan (ram, disk, tape).
-  The bigger issue is that it can take a lot of work to bring
-    a re-joining replica up to date; careful design is required.</p>
+<ul>
+<li>Raft keeps sending each op to all servers, proceeds when majority answer
+<ul>
+<li>So leader must keep full log until failed server re-joins</li>
+</ul></li>
+<li>Harp eliminates failed server from view, doesn't send to it
+<ul>
+<li>Only witness has to keep a big log; has special plan (ram, disk, tape).</li>
+</ul></li>
+<li>The bigger issue is that it can take a lot of work to bring
+a re-joining replica up to date; careful design is required.</li>
+</ul>
 
 <h4>What's the story about the UPS?</h4>
 
@@ -504,8 +506,8 @@ on how fast time passes.</li>
 <li>Harp must replay log from promoted witness (S4)</li>
 </ul></li>
 <li>Could S1 have executed an op just before crashing
+that the replicas didn't execute after taking over?
 <ul>
-<li>that the replicas didn't execute after taking over?</li>
 <li>No, execution up to CP only, and CP is safe on S2+S3.</li>
 </ul></li>
 </ul>
@@ -574,8 +576,13 @@ on how fast time passes.</li>
 <ol>
 <li>No other view possible.</li>
 <li>Know view # of most recent view.</li>
-<li><p>Know all ops from most recent view.</p></li>
-<li><p>(1) is true if you have n+1 nodes in new view.</p></li>
+<li>Know all ops from most recent view.</li>
+</ol>
+
+<p>Details:</p>
+
+<ul>
+<li>(1) is true if you have n+1 nodes in new view.</li>
 <li>(2) true if you have n+1 nodes that did not lose view # since last view.
 <ul>
 <li>View # stored on disk, so they just have to know disk is OK.</li>
@@ -589,7 +596,7 @@ through the end of the previous view.</li>
 <li>Perhaps from different servers, e.g. log from promoted witness,
 disk from backup that failed multiple views ago.</li>
 </ul></li>
-</ol>
+</ul>
 
 <h4>Does Harp have performance benefits?</h4>
 

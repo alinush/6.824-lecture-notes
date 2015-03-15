@@ -92,7 +92,7 @@ What specific problems with previous DSM are they trying to fix?
    + m1 writes x, m2 just reads y
    + **Q:** what does IVY do in this situation?
    + **A:** Ivy will bounce the page between x and y back and forth
- - write amplification: a one byte write turns into a whole-page transfer
+ - **Write amplification:** a 1-byte write turns into a whole-page transfer
 
 **First Goal:** eliminate write amplification
 
@@ -119,12 +119,13 @@ Example:
    + M1 marks the page as read-only
 
 **Q:** Do write diffs provide sequential consistency?
+
  - At most one writeable copy, so writes are ordered
  - No writing while any copy is readable, so no stale reads
  - Readable copies are up to date, so no stale reads
  - Still sequentially consistent
 
-**Q:** Do write diffs help with false sharing?
+**Q:** Do write diffs help with false sharing?  
 **A:** No, they help with write amplification
 
 Next goal: allow multiple readers+writers to cope with false sharing
@@ -209,8 +210,8 @@ What does RC do?
 ### Big idea: lazy release consistency (LRC)
 
  - one problem is that when we `unlock()` we update everybody,
-   but now everyone might need the changed data
- - only send write diffs to next acquirer of released lock (
+   but not everyone might need the changed data
+ - only send write diffs to next acquirer of released lock
    + (i.e. when someone calls `lock()` and they need updates to the 
       data)
  - lazier than RC in two ways:
