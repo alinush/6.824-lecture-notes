@@ -28,9 +28,28 @@ Flat datacenter storage
 
  - lots of clients
  - lots of storage servers ("tractservers")
+ - lots of bandwidth between any two servers
+ - data is stored in blobs
+   + addressed by 128bit IDs
+   + further split into tracts
+     - numbered from 0
+     - 8MB sized
  - partition the data
  - master ("metadata server") controls partitioning
  - replica groups for reliability
+ - tract table locator (TLT) stores a bunch entries
+   + in a `k`-replicated system, each entry has `k` tractservers
+ - how to find where a tract `t` for blob `b` is?
+   + compute TLT entry as `(h(b) + t) mod len(tlt)`
+     - and you'll get a list of servers in that entry
+   + blob metadata is _distributed_ and NOT stored in the TLT
+ - how to write a tract from a blob?
+   + look it up as described above
+   + send write to all servers in TLT entry
+   + only acknowledge write to client if _all_ servers replied
+ - how to read a tract from a blob?
+   + look it up as described above
+   + send read to _a random_ server in the TLT entry
 
 ### Why is this high-level design useful?
 
@@ -85,6 +104,18 @@ Flat datacenter storage
  - failure handling?
  - failure model?
  - consistent reads/writes? (i.e. does a read see latest write?)
+   + Not in FDS: "The current protocol for replication depends upon the
+     client to issue all writes to all replicas. This decision
+     means that FDS provides weak consistency guarantees
+     to clients. For example, if a client writes a tract to 1
+     of 3 replicas and then crashes, other clients reading
+     different replicas of that tract will observe differing state."
+   + "Writes are not guaranteed to be committed
+      in order of issue. Applications with ordering requirements 
+      are responsible for issuing operations after previous
+      acknowledgments have been received, rather than
+      concurrently. FDS guarantees atomicity: a write is either
+      committed or failed completely"
  - config mgr failure handling?
  - good performance?
  - useful for apps?
@@ -195,6 +226,23 @@ Example:
  - To increase the amount of disk space / parallel throughput
  - Metadata server picks some random TLT entries
  - Substitutes new server for an existing server in those TLT entries
+
+### Extending a tract's size
+
+ - Newly created blobs have a length of 0 tracts
+ - Applications must extend a blob before writing past the end of it. 
+ - The extend operation is atomic, is safe to execute concurrently with other 
+   clients, and returns the new size of the blob as a result of the client’s call. 
+ - A separate API tells the client the blob's current size. 
+ - Extend operations for a blob are sent to the tractserver that owns that blob’s
+   metadata tract. 
+ - The tractserver serializes it, atomically updates the metadata, and returns 
+   the new size to each caller. 
+ - If all writers follow this pattern, the extend operation provides a range of 
+   tracts the caller may write without risk of conflict. Therefore, the extend 
+   API is functionally equivalent to the Google File System's "atomic append." 
+ - Space is allocated lazily on tractservers, so tracts claimed but not used do 
+   not waste storage.
   
 #### How do they maintain `n^2` plus one arrangement as servers leave join?
 

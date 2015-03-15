@@ -44,3 +44,8 @@ Papers we read in 6.824 ([directory here](papers/)):
  18. [Kademlia](papers/kademlia.pdf)
  19. [Bitcoin](papers/bitcoin.pdf)
  20. [AnalogicFS](papers/katabi-analogicfs.pdf)
+
+Quizzes
+-------
+
+Prep for quiz 1 [here](exams/quiz1/quiz1.html)

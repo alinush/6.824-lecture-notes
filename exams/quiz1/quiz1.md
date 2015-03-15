@@ -81,4 +81,12 @@ Flat datacenter storage
 
 ### [Question 4](qs/q14-4-4.png)
 
+**Answer:** This is silly: If Ben's design returns to the client after hearing from JUST one server, then the blob's size is NOT REALLY extended: i.e. there are still servers that don't know about that new size. So when the client will contact them with a write to tract n-1 just after ExtendBlobSize(n), a bunch of these writes will fail because the servers will return an out-of-bounds error.
 
+Literally, ANY application that calls extend and then write will fail.
+
+**Their answer:** If two separate clients try to extend the size of the blob by 1 tract (paper doesn't make it clear if you specify new size or additional size), and they talk to different servers and both reply "Extended successfully" back, then when the two clients will write this newly added tract, they will overwrite each other's writes, instead of writing separately to tract `n+1` and `n+2` (assuming `n` was the size of the blob before extending).
+
+### [Question 5](qs/q14-4-5.png)
+
+**Answer:** Seems like it must reply ABORT to a PREPARE request `r1` when there's another request `r0` that has successfully prepared.

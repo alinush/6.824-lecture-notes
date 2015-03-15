@@ -77,3 +77,13 @@ A: returns old <code>db[k]</code> and sets new <code>db[k] = hash(db[k] + v)</co
 <h2>Flat datacenter storage</h2>
 
 <h3><a href="qs/q14-4-4.png">Question 4</a></h3>
+
+<p><strong>Answer:</strong> This is silly: If Ben's design returns to the client after hearing from JUST one server, then the blob's size is NOT REALLY extended: i.e. there are still servers that don't know about that new size. So when the client will contact them with a write to tract n-1 just after ExtendBlobSize(n), a bunch of these writes will fail because the servers will return an out-of-bounds error.</p>
+
+<p>Literally, ANY application that calls extend and then write will fail.</p>
+
+<p><strong>Their answer:</strong> If two separate clients try to extend the size of the blob by 1 tract (paper doesn't make it clear if you specify new size or additional size), and they talk to different servers and both reply "Extended successfully" back, then when the two clients will write this newly added tract, they will overwrite each other's writes, instead of writing separately to tract <code>n+1</code> and <code>n+2</code> (assuming <code>n</code> was the size of the blob before extending).</p>
+
+<h3><a href="qs/q14-4-5.png">Question 5</a></h3>
+
+<p><strong>Answer:</strong> Seems like it must reply ABORT to a PREPARE request <code>r1</code> when there's another request <code>r0</code> that has successfully prepared.</p>

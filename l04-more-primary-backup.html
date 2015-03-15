@@ -35,9 +35,42 @@
 <ul>
 <li>lots of clients</li>
 <li>lots of storage servers ("tractservers")</li>
+<li>lots of bandwidth between any two servers</li>
+<li>data is stored in blobs
+<ul>
+<li>addressed by 128bit IDs</li>
+<li>further split into tracts
+<ul>
+<li>numbered from 0</li>
+<li>8MB sized</li>
+</ul></li>
+</ul></li>
 <li>partition the data</li>
 <li>master ("metadata server") controls partitioning</li>
 <li>replica groups for reliability</li>
+<li>tract table locator (TLT) stores a bunch entries
+<ul>
+<li>in a <code>k</code>-replicated system, each entry has <code>k</code> tractservers</li>
+</ul></li>
+<li>how to find where a tract <code>t</code> for blob <code>b</code> is?
+<ul>
+<li>compute TLT entry as <code>(h(b) + t) mod len(tlt)</code>
+<ul>
+<li>and you'll get a list of servers in that entry</li>
+</ul></li>
+<li>blob metadata is <em>distributed</em> and NOT stored in the TLT</li>
+</ul></li>
+<li>how to write a tract from a blob?
+<ul>
+<li>look it up as described above</li>
+<li>send write to all servers in TLT entry</li>
+<li>only acknowledge write to client if <em>all</em> servers replied</li>
+</ul></li>
+<li>how to read a tract from a blob?
+<ul>
+<li>look it up as described above</li>
+<li>send read to <em>a random</em> server in the TLT entry</li>
+</ul></li>
 </ul>
 
 <h3>Why is this high-level design useful?</h3>
@@ -118,7 +151,21 @@ deals better with stragglers   </li>
 <li>replication?</li>
 <li>failure handling?</li>
 <li>failure model?</li>
-<li>consistent reads/writes? (i.e. does a read see latest write?)</li>
+<li>consistent reads/writes? (i.e. does a read see latest write?)
+<ul>
+<li>Not in FDS: "The current protocol for replication depends upon the
+client to issue all writes to all replicas. This decision
+means that FDS provides weak consistency guarantees
+to clients. For example, if a client writes a tract to 1
+of 3 replicas and then crashes, other clients reading
+different replicas of that tract will observe differing state."</li>
+<li>"Writes are not guaranteed to be committed
+in order of issue. Applications with ordering requirements 
+are responsible for issuing operations after previous
+acknowledgments have been received, rather than
+concurrently. FDS guarantees atomicity: a write is either
+committed or failed completely"</li>
+</ul></li>
 <li>config mgr failure handling?</li>
 <li>good performance?</li>
 <li>useful for apps?</li>
@@ -254,6 +301,25 @@ deals better with stragglers   </li>
 <li>To increase the amount of disk space / parallel throughput</li>
 <li>Metadata server picks some random TLT entries</li>
 <li>Substitutes new server for an existing server in those TLT entries</li>
+</ul>
+
+<h3>Extending a tract's size</h3>
+
+<ul>
+<li>Newly created blobs have a length of 0 tracts</li>
+<li>Applications must extend a blob before writing past the end of it. </li>
+<li>The extend operation is atomic, is safe to execute concurrently with other 
+clients, and returns the new size of the blob as a result of the client’s call. </li>
+<li>A separate API tells the client the blob's current size. </li>
+<li>Extend operations for a blob are sent to the tractserver that owns that blob’s
+metadata tract. </li>
+<li>The tractserver serializes it, atomically updates the metadata, and returns 
+the new size to each caller. </li>
+<li>If all writers follow this pattern, the extend operation provides a range of 
+tracts the caller may write without risk of conflict. Therefore, the extend 
+API is functionally equivalent to the Google File System's "atomic append." </li>
+<li>Space is allocated lazily on tractservers, so tracts claimed but not used do 
+not waste storage.</li>
 </ul>
 
 <h4>How do they maintain <code>n^2</code> plus one arrangement as servers leave join?</h4>
