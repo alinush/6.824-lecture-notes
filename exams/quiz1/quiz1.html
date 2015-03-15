@@ -1,0 +1,79 @@
+<h1>Q1 2014</h1>
+
+<h2>1. MapReduce</h2>
+
+<h3><a href="qs/q14-1-1.png">Question 1</a></h3>
+
+<p><strong>Answer:</strong> The Map jobs are ran in parallel and once they are done, the reduce jobs are ran in parallel as well.</p>
+
+<p>You can imagine implementing the <code>wc</code> example by having the <code>Map</code> calls doing <code>Put()</code> and <code>Get()</code> calls to store and increment the counts for the words. <code>Increment(w)</code> would be <code>c = Get(w); Put(w, c+1)</code>. However, this will be bound to have race conditions when two <code>Map()</code> calls increment the count for the same word <code>w</code>:</p>
+
+<pre><code>Map1: c1 = Get(w) 
+Map2: c1 = Get(w)
+// note that they both get the same count
+Map1: Put(w, c1+1)
+Map2: Put(w, c1+1)
+</code></pre>
+
+<p>If the count were <code>c</code> before the two calls executed, then it will be <code>c+1</code> instead of <code>c+2</code> after they finished.</p>
+
+<h2>2. Non-determ. and repl. state mach.</h2>
+
+<h3><a href="qs/q14-2-2.png">Question 2</a></h3>
+
+<p><strong>Answer:</strong> In my lab 3, whenever agreement is reached for a certain paxos instance, a Decided message is broadcast to everyone and waited upon for receipt confirmation by everyone. The timestamp can be included in this message. When to generate it? Before a Prepare call. If the proposer's value was the accepted value, then his timestamp is used. If it was another's proposer's value, then the timestamp included with that value should be used.</p>
+
+<p>The problem with this is that you could have a Put(a, v2) decide at log entry i+1, before a Put(a, v1) had a chance to decide at log entry i, so then a later Put() would have an earlier timestamp than an earlier Put(), which would be incorrect</p>
+
+<p>A different approach would be to start two agreements for a Put(), one with a timestamp and one for the actual Put(). The problem with this approach is the interleaving of these agreements for two Put() requests will mess things up?</p>
+
+<p>It seems that the only way to get this to work is to make sure that everything is decided up to seq. i before you propose and accept the Put() at seq i+1, then you can use the Decided timestamping approach. </p>
+
+<h2>Not quite replicated state machines</h2>
+
+<h3><a href="qs/q14-3-3.pdf">Question 3</a></h3>
+
+<p>Q: What does <code>PutHash(k, v)</code> do?
+A: returns old <code>db[k]</code> and sets new <code>db[k] = hash(db[k] + v)</code>. Can be used to chain all values for a key together. Useful when testing apparently</p>
+
+<p>Example:</p>
+
+<pre><code>`Put(a, 'lol')`
+`PutHash(a, 'sd') -&gt; lol`
+`Get(a)` -&gt; hash('lol' + 'sd')
+</code></pre>
+
+<p>Answer:</p>
+
+<pre><code>                            Primary                         Backup
+   c1 - PutHash(a,v1) -&gt;       |S1                            |S2
+            |                  |db[a]=v0                      |db[a]=v0
+            |                  |     -- fwd op --&gt;            |
+            |                  |                              | execs op =&gt;
+            |                  |                              |db[a]=h(v0|v1)
+            |                  |                              |dups[reqid]=v0 
+            |                  |       x-- op reply fails --  | 
+            |                  |           due to net fail    |
+            |                  |                              |
+            \                  |S1                            |S2
+             |                 |db[a]=v0                      |db[a]=h(v0|v1)      
+   c2 - PutHash(a,v2) -&gt;       |                              |
+             |                 |     -- fwd op --&gt;            | execs op =&gt;        
+             |                 |                              |db[a]=h(h(v0|v1)|v2)
+             |                 |                              |
+             |                 |   &lt;-- reply goes back to S1  |
+             |                 |       and S1 replies to c2   |
+             |                 |                              |
+            /                  |db[a]=h(h(v0|v1)|v2)          |
+            |----------&gt;       |S1                            |S2
+                               |                              | fails!!
+                               | no duplicate info at         |
+                               | S1 about c1's requst         |
+                               | so it'll be reeexecuted      |
+                               |                              |
+                               |                              |
+</code></pre>
+
+<h2>Flat datacenter storage</h2>
+
+<h3><a href="qs/q14-4-4.png">Question 4</a></h3>

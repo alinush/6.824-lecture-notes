@@ -181,16 +181,41 @@ Lab 1: MapReduce
 ### Computational model
 
  - aimed at document processing
-   + split doc `-> <k1, v1>`
-   + run `Map(k1, v1)` on each split `-> <k2, v2>`
-   + run `Reduce(k2, list(v2))` on each partition `-> list(v2)`
+   + split doc `-> k1, list<v1>`
+   + run `Map(k1, list<v1>)` on each split `-> list<k2, v2>`
+   + run `Reduce(k2, list<v2>)` on each partition `-> list<v2>`
    + merge result
  - write a map function and reduce function
    + framework takes care of parallelism, distribution, and fault tolerance
  - some computations are not targeted, such as:
    + anything that updates a document
 
+### Example: `wc`
+
+ - word count
+ - In Go's implementation, we have:
+   + `func Map(value string) *list.List`
+      - the input is _a split_ of the file `wc` is called on
+          +  a split is just a partion of the file, as decided
+             by MapReduce's splitter (can be customized, etc.)
+      - returns a list of _key-value pairs_
+          + the key is the word (like 'pen')
+          + the value is 1 (to indicate 'pen' occurred once)
+      - **Note:** there will be multiple `<'pen', 1>` entries in the list
+        if 'pen' shows up more times
+   + `func Reduce(key string, values *list.List) string`
+      - the input is a key and a list of (all? ) the values mapped to that key in the `Map()` phase
+      - so here, we would expect a `Reduce('pen', [1,1,1,1])` call if pen appeared 4 times in the
+        input file
+          + **TODO**: not clear if it's also possible to get three reduce calls as follows:
+              - `Reduce('pen', [1,1]) -> 2` + `Reduce('pen', [1,1]) -> 2`
+              - `Reduce('pen', [2,2])`
+              - the paper seems to indicate `Reduce`'s return value is just a list of values
+                and so it seems that the association of those values with the key 'pen' in this
+                case would be lost, which would prevent the 3rd `Reduce('pen')` call 
+
 ### Example: `grep`
+
  - map phase
    + master splits input in `M` partitions
    + calls Map on each partition

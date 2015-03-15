@@ -282,9 +282,9 @@ in the last month of the course
 <ul>
 <li>aimed at document processing
 <ul>
-<li>split doc <code>-&gt; &lt;k1, v1&gt;</code></li>
-<li>run <code>Map(k1, v1)</code> on each split <code>-&gt; &lt;k2, v2&gt;</code></li>
-<li>run <code>Reduce(k2, list(v2))</code> on each partition <code>-&gt; list(v2)</code></li>
+<li>split doc <code>-&gt; k1, list&lt;v1&gt;</code></li>
+<li>run <code>Map(k1, list&lt;v1&gt;)</code> on each split <code>-&gt; list&lt;k2, v2&gt;</code></li>
+<li>run <code>Reduce(k2, list&lt;v2&gt;)</code> on each partition <code>-&gt; list&lt;v2&gt;</code></li>
 <li>merge result</li>
 </ul></li>
 <li>write a map function and reduce function
@@ -294,6 +294,46 @@ in the last month of the course
 <li>some computations are not targeted, such as:
 <ul>
 <li>anything that updates a document</li>
+</ul></li>
+</ul>
+
+<h3>Example: <code>wc</code></h3>
+
+<ul>
+<li>word count</li>
+<li>In Go's implementation, we have:
+<ul>
+<li><code>func Map(value string) *list.List</code>
+<ul>
+<li>the input is <em>a split</em> of the file <code>wc</code> is called on
+<ul>
+<li>a split is just a partion of the file, as decided
+by MapReduce's splitter (can be customized, etc.)</li>
+</ul></li>
+<li>returns a list of <em>key-value pairs</em>
+<ul>
+<li>the key is the word (like 'pen')</li>
+<li>the value is 1 (to indicate 'pen' occurred once)</li>
+</ul></li>
+<li><strong>Note:</strong> there will be multiple <code>&lt;'pen', 1&gt;</code> entries in the list
+if 'pen' shows up more times</li>
+</ul></li>
+<li><code>func Reduce(key string, values *list.List) string</code>
+<ul>
+<li>the input is a key and a list of (all? ) the values mapped to that key in the <code>Map()</code> phase</li>
+<li>so here, we would expect a <code>Reduce('pen', [1,1,1,1])</code> call if pen appeared 4 times in the
+input file
+<ul>
+<li><strong>TODO</strong>: not clear if it's also possible to get three reduce calls as follows:
+<ul>
+<li><code>Reduce('pen', [1,1]) -&gt; 2</code> + <code>Reduce('pen', [1,1]) -&gt; 2</code></li>
+<li><code>Reduce('pen', [2,2])</code></li>
+<li>the paper seems to indicate <code>Reduce</code>'s return value is just a list of values
+and so it seems that the association of those values with the key 'pen' in this
+case would be lost, which would prevent the 3rd <code>Reduce('pen')</code> call </li>
+</ul></li>
+</ul></li>
+</ul></li>
 </ul></li>
 </ul>
 
