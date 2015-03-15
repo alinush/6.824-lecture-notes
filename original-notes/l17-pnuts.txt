@@ -1,0 +1,369 @@
+6.824 2014 Lecture 16: PNUTS
+============================
+
+Brian F. Cooper, Raghu Ramakrishnan, Utkarsh Srivastava, Adam
+Silberstein, Philip Bohannon, Hans-Arno Jacobsen, Nick Puz, Daniel
+Weaver and Ramana Yerneni. PNUTS: Yahoo!'s Hosted Data Serving
+Platform. Proceedings of VLDB, 2008.
+
+Going to talk about PNUTS today.  
+  Distributed data storage at Yahoo.
+  Published after Dynamo (tomorrow), well before Spanner  
+  [ PNUTS: Platform for Nimble Universal Table Storage ]
+
+what is PNUTS' overall goal?
+  [world, browsers, data centers]
+  overall story similar to that of Spanner
+  10s of data centers ("sites") all over the world; geographically diverse
+  web applications, e.g. mail, shopping, social net
+    each app probably runs at all sites
+  PNUTS keeps state for apps
+    per-user: profile, shopping cart, friend list
+    per-item: book popularity, news articles
+  App might need any piece of data at any data center
+  Need to handle lots of concurrent updates to different data
+    e.g. lots of users must be able to update profile at same time
+    thus 1000s of PNUTS servers
+  Must cope well with partial failures
+    1000s of servers => crashes must be frequent
+
+Overview
+  [diagram: 2 datacenters, user browser, web apps, PNUTS generic boxes, SF and Virgina]
+  Copy of data at each site
+  Geographic distribution
+  How to keep copies of data synchronized?
+  Sites need to apply same updates
+
+Major Interesting Points
+  Copy of data everywhere, so
+  Try to be local for all reads and writes
+    Reads and writes are fast and asynchronous
+    Don't have to do cross-datacenter traffic
+  Not serializability -- consistency model interesting.  
+    Can see stale data
+    App controls semantics and hence performance
+
+Data model
+  table
+    record  [ key attr      ]
+      primary key + attributes (columns)
+      Blobs, application specific data (parsed JSON)
+  Queries only by primary key, which must be unique
+  Also supports range scan on primary key
+  Reads/writes can probably be by column
+    So a write might replace just one column, not whole record
+  Application reading and writing at one site (datacenter)
+
+Consistency Semantics
+  per-record timeline consistency
+  Version # stored in each record
+  [ key attr version    ]
+  Example:  Alice, mom, photos, spring break
+    Alice does permission change from app in SF
+    Alice does photo upload from app in Virginia
+    Update1 and Update2.  Cannot see just Update2, no matter where Mom is.
+
+More consistency semantics
+  ONLY per record.  Alice's stuff must all be in same record.
+  Nothing guaranteed across records (example if it was different records being updated)
+    Mom can see just U2
+  Can read stale data
+
+Interesting choice
+  Contrast with serializability:  Is this feasible for applications?
+  Certainly while I'm updating and reading my profile, it's ok if I see a stale version of yours.
+  OK for Mom to see old data, just shouldn't see pictures without permission change
+
+How to do this?
+  App server gets web request, needs to write data in PNUTS
+  Need to update every site!
+  Why not just have app logic send update to every site?
+    What if app crashes after updating only some sites?
+    What if concurrent updates to same record?
+
+PNUTS has a "record master" for each record
+  all updates must go through that site
+    each record has a hidden column indicating site of record master
+    draw key:  [ key attrs version RM   ]
+  Cool part:  This can change online
+
+Architecture of a single datacenter
+  [diagram: Fill in: tablet ctlrs, routers, storage units, YMBs]
+  Each table partitioned by key over storage units
+    Table chunks called "tablets", correspond to a range of keys from table
+      ~1GB tablet size
+    Storage unit stores many tablets
+    Tablet controller + routers know the partition plan
+    Routers stateless, controller has real copy.  Primary/Backup like Lab2
+  YMB is this other service, slightly mysterious
+    In charge of:
+      1. Logs writes to disk (commit point)
+      2. Ordering
+      3. Sending updates to other replicas
+    Likely API pieces:
+      Messages are addressed to topics (e.g., "/table7/tablet23")
+      YMB keeps track of all clients, and the topics they subscribe to
+      Clients have a list of pending messages; must explicitly ACK them
+  How a write happens:
+    responsible storage unit (master) executes updates one at a time per record
+    tells MB to broadcast update to all sites
+
+So the complete update story (some guesswork):
+  app wants to update some columns of a record, knows key.  
+  (Update Alice's record in VA, record master in SF; SI indicates site)
+  1. app sends key and update to local SU1 (VA)
+  2. SU1 looks up record master for key: SI2 (VA)
+  3. SU1 sends update request to router at SI2 (VA->SF)
+  4. router at SI2 forwards update to local SU2 for key (SF)
+  6. SU2 sends update to local Message Broker (MB) (SF)
+  7. MB stores on disk + backup MB, sends vers # to original app (SF->VA)
+     [ how does MB know the vers #? maybe SU2 told it
+       or perhaps SU2 (not MB) replies to original app ]
+  8. MB sends update to router at every site (SF->VA)
+  9. every site updates local copy (VA)
+
+What about records that don't have a master yet (new inserts)?
+  Can we insert in local datacenter?
+  Problem: need to ensure we don't end up with two record w/ same key.
+  Tablet master: initial master for all inserts.
+
+Puzzles:
+  paper says MB is commit point
+  does SU2 perform update before or after talking to MB?
+    what if SU2 crashes at a bad time?
+    maybe they are serious that they never recover a crashed SU?
+  who assigns version #, and when?
+    if MB: how does it know the version#?
+    if SU: what if tablet controller can't talk to SU, re-assigns tablet?
+      old SU might still think it's a master.
+      publishes MB updates with interleaved version #s.
+  who replies to the app?
+
+Writes seem like they'd be slow -- why does it make sense? (VA->SF->VA)
+  Hopefully record master is local. 
+    On average, 85% of a record's writes come from one site.  Pick the right site.
+    PNUTS smart enough to move it around!
+  MB distribution is async (app does not wait)
+  down side: readers at non-master sites may see stale data
+
+How does a read-only query execute?
+  Multiple kinds of reads (section 2.2) so that **Application controls consistency semantics**
+  how does each work?
+  why is each needed?
+  read-any(k)
+    read from local SU
+    might return stale data (even if you just wrote!)
+    why: fast!  local!
+  read-critical(k, required_version)
+    maybe read from local SU if it has vers >= required_version
+    otherwise read from master SU
+    why: reflects what app has already seen or written; maybe fast
+  read-latest(k)
+    probably always read from master SU (? "if local copy too stale")
+    slow if master is remote!
+    why: app needs fresh data
+
+Problem: What if you need to increment a counter stored in a record?
+  Counter X.  SF trying to increment, Virgina as well.
+  app reads old value, increments locally, writes new value
+  what if the local read produced stale data?
+  what if read was OK, but concurrent updates?
+
+test-and-set-write(version#, new value) gives you atomic update to one record
+  master rejects the write if current version # != version#
+  so if concurrent updates, one will lost and retry 
+    while(1):
+      (x, ver) = read-latest(k)
+      if(t-a-s-w(k, ver, x+1))
+        break
+  "Optimistic concurrency control" (OCC)
+    Tentatively assume things will work out, check at the end
+  Problem:  SF could get starved.  Virginia could just keep updating.  
+    Describe how (Virginia constantly pre-empting, SF failing t-a-s)    
+
+The Question
+  how does PNUTS cope with Example 1 (page 2)
+  Initially Alice's mother is in Alice's ACL, so mother can see photos
+  1. Alice removes her mother from ACL
+  2. Alice posts spring-break photos
+  could her mother see update #2 but not update #1?
+    really, could mother's app server see updates in wrong order
+    esp if mother uses different site than Alice
+  ACL and photo list must be in the same record
+    since PNUTS guarantees order only for updates to same record
+  Alice sends updates to her record's master site in order
+    master site broadcasts via MB in order
+    MB tells other sites to apply updates in order
+  What if Alice's mother:
+    reads the old ACL, that includes mother
+    reads the new photo list
+    answer: just one read of Alice's record, has both ACL and photo list
+      if record doesn't have new ACL, order says it can't have new photos either
+
+What if we want to track friends in a social application (e.g., Twitter)?
+  Proposal 1: one record per user, has a list of followers in it
+  Proposal 2: one record per user pair ("friendship"), named by (user1,user2)
+  What's the difference?  Which design makes more sense?
+    Paper proposes design 2.
+
+What if we wanted to do bank transfers?
+  from one account (record) to another
+  can t-a-s-w be used for this?
+    Seems tricky.  Not in the obvious way (with 2 records, Alice, Bob)
+    not in any direct way (but maybe to update a log)
+  nothing like 2pc for updating multiple records atomically
+  multi-record updates are not atomic
+    other readers can see intermediate state
+    other writers are not locked out
+    writer might crash after applying only part of an update
+  multi-record reads are not atomic
+    might read one account before xfer, other account after xfer
+
+Difference here from Spanner.
+
+Is lack of general transactions a problem for web applications?
+  maybe not, if programmers know to expect it.  Seems ok for the Alice/Mom problem.
+
+What about tolerating failures?
+  want to keep going even if some parts are broken
+
+The main players are
+  app servers
+  storage units
+  YMB
+  a record's master (owning site, SU)
+  routers
+  tablet controller
+
+App server crashes midway through a set of updates
+  not a transaction, so only some of writes will happen
+  but master SU/MB either did or didn't get each write
+    so each write happens at all sites, or none
+
+SU crashes:  paper indicates it doesn't come back.
+  Did it make it to YMB?
+    If so, write went through.  But client possibly got an error.  
+      It's the client's job to check, and deal with duplicate writes.
+    If not, write didn't happen.
+  How does the tablet controller re-assign tablets to other servers?
+    Paper doesn't say
+    Might need to be sure that SU is really down, not just partitioned,
+      so it doesn't publish any more YMB updates for records it owns
+  How does the new SU recover state?
+    For each tablet:
+      Subscribe to YMB messages for that tablet
+      Find SU responsible for this tablet in another data center
+      Ask it to send a copy of the state
+      Publish a "checkpoint" message via YMB (in that other data center)
+      Wait for remote replica to send state copy, up to "checkpoint" msg
+      Resume applying YMB messages since the "checkpoint" message as usual
+
+MB crashes after accepting update
+  logs to disks on two MB server before ACKing
+  recovery looks at log, (re)sends logged msgs
+  record master may re-send an update if MB crash before ACK
+    record version #s will allow SUs to ignore duplicate
+
+MB is a neat idea
+  atomic: updates all replicas, or none
+    so failure of app srvrs isn't a problem
+  reliable: keeps trying, to cope with temporarily SU/site failure
+  async: apps don't have to wait for write to complete, good for WAN
+  ordered: keeps replicas identical even w/ multiple writers
+
+Record's master site loses network connection
+  Can other sites designate a replacement RM?
+    no: original RM may still be processing updates
+    don't want *two* RMs!
+  Do other sites have to wait indefinitely?
+    Seems like other sites could continue to serve stale data for reads, and process writes for other data
+  this is what the end of section 2.2 is about -- Dynamo envy
+
+how to change record's master if no failures?
+  e.g. Alice moves from SF->East Coast
+  Update the record, via old master
+    since ID of master site is stored in the record
+  A few subsequent updates might go to the old master
+    it will reject them, app retries and finds new master
+
+Router failure
+  Stateless
+  Just start caching mappings from tablet controller after recovery
+
+Tablet controller failure
+  Primary/backup like lab2
+  No discussion of what update requests it accepts (if any)
+
+Evaluation focuses on latency and scaling
+
+5.2: time for an insert while busy
+  depends on how far away Record Master is
+  RM local: 75.6 ms
+  RM nearby: 131.5 ms
+  RM other coast: 315.5 ms
+
+what is 5.2 measuring? from what to what?
+  maybe web server starts insert, to RM replies w/ new version?
+  probably not time for MB to propagate to all sites
+    since then local RM wouldn't be < remote
+
+Why 75 ms?
+
+Is it 75 ms of network speed-of-light delay?
+  no: local
+
+Is the 75 ms mostly queuing, waiting for other client's operations?
+  no: they imply 100 clients was max that didn't cause delay to rise
+
+End of 5.2 suggests 40 ms of 75 ms in in SU
+  how could it take 40 ms?
+    each key/value is one file?
+    creating a file takes 3 disk writes (directory, inode, content)?
+  what's the other 35 ms?
+    YMB logging to disk?
+
+But only 33 ms (not 75) for "ordered table" (MySQL/Innodb)
+  closer to the one disk write we'd expect
+
+5.3 / Figure 3: effect of increasing request rate
+  what do we expect for graph w/ x-axis req rate, y-axis latency?
+    system has some inherent capacity, e.g. total disk seeks/second
+    for rates less than that, constant latency
+    for rates higher than that, growing queues, divergent average latency
+  blow-up should be at max capacity of h/w
+    e.g. # disk arms / seek time
+  we don't see that in Figure 3
+    end of 5.3 says clients too slow
+    at >= 75 ms/op, 300 clients -> about 4000/sec
+  text says max possible rate was about 3000/second
+    that's higher than 1300 from section 5.2 -- why?
+    probably 5.3 has lots of reads as well as writes
+
+Later papers / posts describe how PNUTS evolved
+  http://ieeexplore.ieee.org/xpl/login.jsp?tp=&arnumber=6060790
+  http://www.cs.georgetown.edu/~wzhou/publication/sherdoop-sigmod11.pdf
+  https://developer.yahoo.com/blogs/ydn/sherpa-grows-scales-2011-50931.html
+
+No papers about YMB, but it's similar to other pub-sub systems:
+  https://cwiki.apache.org/confluence/display/BOOKKEEPER/HedWig
+
+stepping back, what were PNUTS key design decisions?
+  1. async replication
+     fast reads, but stale
+     fast writes if near master, but not visible for a while
+  2. Per record timeline consistency
+       relaxed consistency / no transactions
+       App controls staleness
+  3. primary-backup replication: sequence all writes thru master site
+     pro: keeps replicas identical,
+          enforces serial order on updates,
+          easy to reason about
+     con: no progress if master site disconnected
+
+Next: Dynamo, a very different design
+  async replication, but no master
+  eventual consistency
+  always allow updates
+  tree of versions if network partitions
+  readers must reconcile versions
+

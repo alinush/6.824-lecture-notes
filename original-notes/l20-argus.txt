@@ -1,0 +1,287 @@
+6.824 2013 Lecture 15: Two-Phase Commmit
+
+Topics:
+  crash recovery for distributed systems
+  distributed transactions -- atomic
+  two-phase commit
+
+Crash recovery:
+  A bunch of computers are cooperating on some task
+    Each has a different role e.g. bank transfer
+  Some crash, or network fails
+  How to ensure atomicity: all finish, or all undo?
+
+Example:
+  calendar system, each user has a calendar
+  want to schedule meetings with multiple participants
+  one server hold calendars of users A-M, another server holds N-Z
+  [diagram: client, two servers]
+  sched(u1, u2, t):
+    begin_transaction
+      if reserve(u1, t) and reserve(u2, t):
+        print "yes"
+      else
+        print "no"
+    end_transaction
+  the reserve() calls are RPCs to the two calendar servers
+  either might return true, false, or fail
+  We want both to reserve, or both not to reserve.
+  What if 2nd reserve() returns "false"?
+  What if 2nd server crashes during reserve()?
+  What if client fails after 1st reserve()?
+  Need an "Atomic Commit Protocol"
+
+Idea: tentative changes, later commit or undo (abort)
+  reserve_handler(u, t):
+    lock u[t]
+    if u[t] is free:
+      u[t] = taken -- IN TEMPORARY STORAGE
+      return true -- DON'T RELEASE LOCK
+    return false
+  commit_handler():
+    copy temporary u[t] to real u[t]
+    unlock u[t]
+  abort_handler():
+    discard temporary u[t]
+    unlock u[t]
+
+Idea: single entity decides whether to commit
+  let's call it the Transaction Coordinator (TC)
+  [time diagram: client, TC, A, B]
+  client sends RPCs to A, B
+  on end_transaction, client sends "go" to TC
+  TC/A/B execute atomic commit protocol...
+  TC reports "commit" or "abort" to client
+
+We want two properties for atomic commit protocol:
+  TC, A, and B each have a notion of committing
+  Correctness:
+    if any commit, none abort
+    if any abort, none commit
+  Performance:
+    (since doing nothing is correct...)
+    if no failures, and A and B can commit, then commit.
+    if failures, come to some conclusion ASAP.
+
+We're going to develop a protocol called "two-phase commit"
+
+Correctness first.
+
+Correct atomic commit protocol:
+  [time diagram: client, TC, A, B]
+  client sends reserve() RPCs to A, B
+  client sends "go" to TC
+  TC sends "prepare" messages to A and B.
+  A and B respond, saying whether they're willing to commit.
+  If both say "yes", TC sends "commit" messages.
+  If either says "no", TC sends "abort" messages.
+  A/B "decide to commit" if they get a commit message.
+    I.e. they actually modify the user's calendar.
+
+Why is this correct?
+  Neither can commit unless they both agreed.
+
+What about performance?
+  Crashes or network problems can still prevent completion.
+  Bad b/c A/B hold locks until commit/abort decided.
+  
+Two problems:
+  Timeout. I'm up, but I don't recv a msg I expect.
+    Host crash? Network broken?
+  Reboot. I crashed, and I'm rebooting, and I need to clean up.
+    
+Let's deal with timeout first.
+  Where do hosts wait for messages?
+  1) TC waits for yes/no.
+  2) A and B wait for commit/abort.
+
+Termination protocol summary:
+  TC t/o for yes/no -> abort
+  B t/o from TC, B voted no -> abort
+  B t/o from TC, B voted yes -> block
+    could ask A if it knows
+
+TC timeout while waiting for yes/no from A/B.
+  TC has not sent any "commit" messages.
+  So TC can safely abort, and send "abort" messages.
+
+A/B timeout while waiting for commit/abort from TC.
+  Let's talk about just B (A is symmetric).
+  If B voted "no", it can unilaterally abort.
+  So what if B voted "yes"?
+  Can B unilaterally decide to abort?
+    No! TC might have gotten "yes" from both,
+    and sent out "commit" to A, but crashed before sending to B.
+    So then A would commit and B would abort: incorrect.
+  B can't unilaterally commit, either:
+    A might have voted "no".
+
+If B voted "yes", it must wait for TC decision.
+
+What if B crashes and restarts?
+  If B sent "yes" before crash, B must remember!
+    --- this is today's question
+  Can't change to "no" (and thus abort) after restart
+  Since TC may have seen previous yes and told A to commit
+  Thus:
+    B must remember on disk before saying "ok", as well as modified data.
+    B reboots, disk says "yes" but no "commit", must ask TC.
+
+What if TC crashes and restarts?
+  If TC might have sent "commit" or "abort" before crash, TC must remember!
+    And repeat that if anyone asks (i.e. if A/B/client didn't get msg).
+    Thus TC must write "commit" to disk before sending commit msgs.
+  Can't change mind since A/B/client have already acted.
+
+This protocol is called "two-phase commit".
+  What properties does it have?
+  * All hosts that decide reach the same decision.
+  * No commit unless everyone says "yes".
+  * TC failure can make servers block w/ locks held until repair.
+
+2PC perspective
+  Useful when different services cooperate (not so useful for replication)
+  Useful within a single smallish distributed system (many msgs)
+  Bad that TC crash can cause indefinite blocking
+  Bad that locks can't be released until very end (even if no crash)
+  Rarely used on a large scale
+    E.g. not between banks, not between airlines
+    Nobody wants to give up control: can't release locks
+    Usually separate commit, reconcile later if someone else aborted
+
+Case study: Argus
+
+Argus's big ideas:
+  Language support for distributed programs
+    Very cool: language abstracts away ugly parts of distrib systems
+  Easy persistence ("stable"):
+    Ordinary variables, no need for DB
+    Automatic crash recovery
+  Easy concurrency:
+    Transactions
+    Implicit locking of language objects
+  Easy RPC model:
+    RPCs are transactions w/ two-phase commit
+    RPC failure largely hidden
+
+Picture
+  "guardian" is like an RPC server
+    has state (variables) and handlers
+  "handler" is an RPC handler
+    reads and writes local variables
+  "action" is a distributed atomic transaction
+  action on A
+    RPC to B
+      B sends RPC to C
+    RPC to D
+  A finishes action
+    prepare msgs to B, C, D
+    commit msgs to B, C, D
+
+The style is to send RPC to where the data is
+  Not to read the data to where it's needed
+  Argus is not a storage system
+
+Look at bank example
+  page 309 (and 306): bank transfer
+
+Points to notice
+  stable keyword (programmer never writes to disk &c)
+  atomic keyword (programmer almost never locks/unlocks)
+  enter topaction (in transfer)
+  coenter (in transfer)
+  RPCs are hidden (e.g. f.withdraw())
+  RPC error handling hidden (just aborts)
+
+what if deposit account doesn't exist?
+  but f.withdraw(from) has already been called?
+  how to un-do?
+
+what's the guardian state when withdraw() handler returns?
+  lock, temporary version, just in memory
+
+crash just before replying to withdraw()?
+
+crash just after replying to withdraw()?
+
+what happens at withdraw guardian when it receives prepare msg?
+
+what happens at withdraw guardian when it receives a commit?
+  an abort?
+
+crash before receiving the commit?
+
+crash while guardian is processing the commit?
+  i.e. while it is writing new versions to its disk?
+
+what if an audit runs during a transfer?
+  how does the audit not see the tentative new balances?
+
+if a guardian crashes, what happens to its locks?
+
+why not let other readers see the old version?
+  i.e. why block readers until new value committed?
+  e.g. transfer not committed, let audit see old balance?
+  arguably it's just as if the other reader ran a little earlier!
+  b/c this sequence would yield the wrong audit result:
+    A=20, B=30 (so audit should return 50)
+    transfer(A, B, 10) starts
+    audit starts, reads A=20
+    transfer commits, now A=10 B=40
+    audit reads B=40
+    audit returns 60
+
+why hold read locks until end of transaction?
+  e.g. audit keeps all locks until it finally commits
+    so no transfer can run -- might take a long time
+  why not release read locks when done reading?
+  example (much like above):
+    A=20 B=30
+    audit reads A=20
+    transfer(A, B, 10)
+    audit reads B=40
+    audit total is 60, not 50, oops
+
+above locking policy is called "two-phase locking"
+  xaction acquires and holds locks
+  only release after commit
+
+two-phase locking yields "serializability"
+  results are as if xactions ran one at a time
+    audit, then transfer; or
+    transfer, then audit
+  an easy-to-understand semantics for transactions
+    though sometimes slow
+
+is Argus's implicit locking the right thing?
+  very convenient!
+  don't have to worry about forgetting to lock!
+  but easy to get deadlock
+    seed = seed + 1 (if done concurrently, lock upgrade deadlock)
+    or transfer(A, B) || transfer(B, A)
+  but easy to over-lock
+    a lookup() fn might scan a list, lock every element, not needed
+  but easy to under-lock
+    a lookup() fn might find no entry; nothing to lock indicating it was missing
+
+is transactions / RPC / 2PC / persistent a good design point?
+  do we want to write our web site in Argus?
+  programmability pro:
+    very easy to get nice fault tolerance semantics
+    language support probably important
+  programmability con:
+    like a database but no SQL joins &c
+  performance con:
+    lots of msgs and disk writes: Table II
+    2PC and 2PL hold locks for a while, block if failure
+    automatic locking probably over-locks
+
+contrast with Spanner/FDS/PNUTS/&c
+  Argus a bit lower-level than Spanner &c
+    e.g. Argus gives you tools to build replication, but isn't replicated
+  storage-centric (Spanner &c)
+    good if the main issue is preserving state
+    good if many clients need to get at each piece of data
+  compute-centric (Argus)
+    good if qualitatively different components (so RPC is best you can do)
+    good if it makes sense to manipulate state locally

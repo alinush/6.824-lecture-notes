@@ -1,0 +1,310 @@
+6.824 2014 Lecture 20: Bitcoin
+
+Bitcoin: A Peer-to-Peer Electronic Cash System, by Satoshi Nakamoto
+2008
+
+what's right/wrong with cash?
+  +  portable
+  +  cannot spend twice
+  +  cannot repudiate after payment
+  +  no need for trusted 3rd party
+  +  anonymous (serial #s?)
+  -  doesn't work online
+  -  easy to steal
+  +- hard to tax / monitor
+  +- government can print more as economy expands
+
+we want e-money; what about credit cards?
+  (paypal and bank e-checks are similar)
+  +  works online 
+  +  hard to steal (a complex situation)
+  +- can repudiate
+  -  requires trusted 3rd party
+  -  tracks all your purchases
+  -  can prohibit some xactions (e.g. wikileaks donations)
+  +- easy for government to monitor/tax/control
+
+bitcoin: e-money without a central trusted party
+
+what's hard technically?
+  forgery
+  double spending
+  theft
+
+what's hard socially/economically?
+  why does it have value?
+  how to convert?
+  how to pay for infrastructure?
+  monetary policy (intentional inflation &c)
+  laws (taxes, laundering, drugs, terrorists)
+
+basic bitcoin setup
+  (all this for a simplified version of bitcoin)
+  a network of bitcoin peers (servers) run by volunteers
+    peers are not trusted: some may be corrupt
+  each peer knows about all bitcoins and transactions
+  transaction (sender -> receiver):
+    sender sends transaction info to some peers
+    peers flood transaction to all other peers
+    receiver checks that lots of peers have seen transaction
+    receiver checks that that bitcoin hasn't already been spent
+
+transactions
+  every bitcoin has a chain of transaction records
+    one for each time this bitcoin was transferred as payment
+  the bitcoin servers maintain the complete chain for every bitcoin
+  chain helps ensure only owner spends
+
+what's in a transaction record?
+  public key of new owner
+  hash of this bitcoin's previous transaction record
+  signed by private key of previous owner
+  in reality, more complex: amount (fractional), multiple in/out, ..
+
+example:
+  a bitcoin is owned by user Y (who received it in payment from X)
+  T7: pub(Y), hash(T6), sig(X)
+  Y buys a hamburger from Z and pays with this bit-coin
+  Z needs to tell Y Z's public key (~~ bitcoin "address")
+    perhaps create a new address just for Y's purchase
+    helps Z figure out what the payment is for
+  Y creates a new transaction and signs it
+  T8: pub(Z), hash(T7), sig(Y)
+  Y sends T8 to bitcoin peers, which flood it
+  honest peers verify that:
+    no other transaction mentions hash(T7),
+    T8's sig() corresponds to T7's pub()
+  Z waits until lots of peers have seen/verified T8,
+    verifies that T8's pub() is Z's public key,
+    then Z gives hamburger to Y
+
+note: payment flows via peer network, not direct from Y to Z
+
+why include pub(Z)?
+
+why include hash(T7)?
+
+why sign with sig(Y)?
+
+where is Z's resulting bitcoin value "stored"?
+  bitcoin balance = unspent xaction
+  the "identity" of a bitcoin is the (hash of) its most recent xaction
+  Z "owns" the bitcoin: has private key that allows Z to make next xaction
+
+does transaction chain prevent stealing?
+  current owner's private key needed to sign next transaction
+  danger: attacker can steal Z's private key
+    Z uses private key a lot, so probably on his PC, easy to steal?
+  a significant problem for bitcoin in practice
+
+does design so far prevent double-spending? no!
+  suppose Y creates two transactions for same bitcoin: Y->Z, Y->Q
+  Z and Q probably don't check *all* the peers
+    so Y has a chance to tell diff peers diff xactions
+  maybe some peers are corrupt and cooperating with Y
+    hide Y->Q from Z, hide Y->Z from Q
+  even if peers know both transactions
+    maybe it's not clear which is "first" and thus is the real transaction
+  only need to play tricks briefly
+    just until Z gives the hamburger to Y
+
+what's needed?
+  a strong notion of publishing
+    either everyone sees xaction, or every doesn't see / ignores
+    e.g. if Z sees Y->Z, Q sees Y->Z too
+  a strong notion of order
+    everyone agrees on which xaction came first, and which was dup
+  easy to achieve with central server: keeps a log of all xactions
+    but we want to avoid relying on any trusted party
+ 
+the block chain
+  a copy stored in each peer
+    why does each peer need complete copy?
+    must know about all other possible xactions
+  each block:
+    hash(prevblock)
+    set of transactions
+    "nonce" (not quite a nonce in the usual cryptographic sense)
+    current time (wall clock timestamp)
+  the order of blocks is implied by hash(prevblock)
+    i.e. given the most recent block, you can find all prev blocks
+  a transaction isn't real unless it's in the block chain
+  new block every 10 minutes containing xactions since prev block
+
+who creates each new block?
+  i.e., who extends the chain?
+  all the peers try
+  requirement: hash(block) < "target"
+  peers try nonce values until this works out
+  can't predict a winning nonce, since cryptographic hash
+  trying one nonce is fast, but only a few values will work
+  it would take one CPU months to create one block
+  but thousands of peers are working on it
+  such that expected time to first to find is about 10 minutes
+  the winner sends the new block to all peers
+  (this is part of "mining")
+
+how do transactions work w/ block chain?
+  start: all peers know ...<-B5
+    and are working on B6 (trying different nonces)
+  Z sends public key (address) to Y
+  Y sends Y->Z transaction to peers, which flood it
+  peers buffer the transaction until B6 computed
+  peers that heard Y->Z include it in next block
+  so eventually ...<-B5<-B6<-B7, where B7 includes Y->Z
+
+what if we want to double-spend?
+  start with block chain ...<-B6
+  Y gets Y->Z into block chain
+    ...<-B6<-BZ (BZ contains Y->Z)
+  Z will see Y->Z in chain and give Y a hamburger
+  can Y create ...<-B6<-BQ
+    and persuade peers to accept it in place of ...<-B6<-BZ?
+
+when will a peer accept chain CX it hears from another peer?
+  suppose peer already knows of chain CY
+  it will accept CX if len(CX) > len(CY)
+  and if CX passes some validity tests
+  will not accept if len(CX) = len(CY): first chain of same length wins
+
+so attacker needs a longer chain to double-spend
+  e.g. ...<-B6<-BQ<-B8, which is longer than ...<-B6<-BZ
+  and must create it in less than 10 minutes
+    *before* main chain grows by another block
+  10 minutes is the time it takes the 1000s of honest peers
+    to find one block
+  if the attacker has just one CPU, will take months to create the blocks
+    by that time the main chain will be much longer
+    no peer will accept the attacker's shorter chain
+    attacker has no chance
+  if the attacker has 1000s of CPUs -- more than all the honest
+    bitcoin peers -- then the attacker can double spend
+ 
+summary:
+  attacker can force honest peers to switch chains if attacker
+    controls majority of peer CPU power
+
+how long should Z wait before giving Y the hamburger?
+  until Z sees Y flood the transaction to many peers?
+    no -- not in the chain, Y might flood conflicting xaction
+  until Z sees one peer with chain ...<-BZ (containing Y->Z)?
+    no -- maybe that peer is corrupt, in league with Y
+  until Z sees lots of peers with chain ...<-BZ?
+    maybe
+    risky -- non-zero chance that some other chain will win
+      i.e. some lucky machine discovered a few blocks in a row
+        quickly, but its network msgs have so far been lost
+      perhaps that chain won't have Y->Z
+      probability goes down rapidly with number of blocks
+  until Z sees chain with multiple blocks after BZ?
+    yes -- slim chance attacker with few CPUs could catch up
+
+validation checks:
+  much of burden is on (honest) peers, to check new xactions/blocks
+    to avoid ever having to scan the whole block chain
+    and so that clients don't have to maintain the whole block chain
+  peer, new xaction:
+    no other transaction refers to same previous transaction
+    signature is by private key of previous transaction
+    [ then will add transaction to txn list for new block being mined ]
+  peer, new block:
+    hash value < target (i.e. nonce is right, proof of work)
+    previous block hash exists
+    new chain longer than current chain
+    all transactions in block are valid
+  Z:
+    Y->Z is in a recent block
+    Z's public key / address is in the transaction
+    multiple peers have accepted that block
+    there's several more blocks in the chain
+  (other stuff has to be checked as well, lots of details)
+
+Q: what can Z assume about xaction if it appears in log?
+   does Z need to check entire history of bitcoin?
+
+Q: why do peers bother checking new xactions before adding to txn list?
+   mined block will be rejected by peers if it contains bad xaction.
+
+Q: how do peers communicate / find each other?
+
+Q: what prevents a bad peer from modifying an existing block?
+
+Q: what prevents a bad peer from reporting an invalid timestamp?
+   other nodes validate timestamp in a block
+   must be larger than median of past few blocks
+   must not be too far in the future (within 2 hours)
+
+Q: what if two nodes disagree on the validity of a transaction?
+   (slight implementation differences between software versions)
+
+Q: 10 minutes is annoying; could it be made much shorter?
+
+Q: are transactions anonymous?  pseudonymous?  analogy: IP addresses.
+
+Q: if I steal bitcoins, is it safe to spend them?
+
+Q: what other attacks might work?
+   oddity of bitcoin's protocol: transaction malleability.
+     cannot rely on your own transaction's hash, until txn in chain.
+   mistakes in transactions themselves.
+     [ http://www.righto.com/2014/03/the-programming-error-that-cost-mt-gox.html ]
+
+Q: what can adversary do with a majority of CPU power in the world?
+   can double-spend
+   cannot steal
+   can prevent xaction from entering chain
+   can revert past xactions (by building longer chain from before that block)
+
+where does each bitcoin originally come from?
+  each time a peer creates a block, it gets 25 bitcoins
+    assuming it is the winner for that block
+  it puts its public key in a special transaction in the block
+  this is incentive for people to operate bitcoin peers
+  but that number halves every 210,000 blocks (abt 4 years)
+
+Q: how rich are you likely to get with one machine mining?
+
+Q: if more people (CPUs) mine, will that create new bitcoin faster?
+   important use of block timestamps: control difficulty (hash target)
+
+mining will stop after 21 million coins
+  via the halving (smallest possible granularity: 10^-8 BTC)
+  so the supply will eventually be fixed
+  at that point block creator will get transaction fees
+
+Q: why does it make sense for the mining reward to decrease with time?
+
+Q: why mine at all? why not start with a fixed number of coins?
+
+Q: is it a problem that there will be a fixed number of coins?
+
+Q: what if the real economy grows (or shrinks)?
+
+Q: why do bitcoins have value?
+   e.g., 1 BTC appears to be around US$445 on may 8th 2014.
+
+Q: will we still need banks, credit cards, &c?
+   today, dollar bills are only a small fraction of total money
+   same may be true of bitcoin
+   so properties of bitcoin (anonymity &c) may not be very important
+
+Q: what are the benefits of banks, credit cards, &c?
+   disputes (Z takes payment and does not give hamburger to Y)
+   loss / recovery (user cannot find their private key)
+
+Q: will bitcoin scale well?
+   as transaction rate increases?
+     claim CPU limits to 4,000 tps (signature checks)
+     more than Visa but less than cash
+   as block chain length increases?
+     do you ever need to look at very old blocks?
+     do you ever need to xfer the whole block chain?
+     merkle tree: block headers vs txn data.
+
+key idea: block chain
+  decentralized agreement on a log
+  no trusted parties, apriori membership
+  "votes" proportional to compute power, not identity (IP, email, account, ..)
+  exponentially small probability of rollback as new blocks are added
+  popular in recent years: many bitcoin offshoots, namecoin, ..
+

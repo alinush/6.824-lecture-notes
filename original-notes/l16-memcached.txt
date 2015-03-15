@@ -1,0 +1,284 @@
+6.824 2013 Lecture 19: Scaling Memcache at Facebook
+
+Scaling Memcache at Facebook, by Nishtala et al, NSDI 2013
+
+why are we reading this paper?
+  it's not an idea/technique paper
+  it's an experience paper
+  lots of lessons and facts about real world of big web sites
+  we can argue with their design, but not their success
+
+the big picture
+  facebook: lots of users, friend lists, status, posts, likes, photos
+  multiple data centers (at least west and east coast)
+  each data center -- "region":
+    "real" data sharded over MySQL DBs
+    memcached layer (mc)
+    web servers (clients of memcached)
+  each data center's DBs contain full replica
+  west coast is master, others are slaves via MySQL async log replication
+
+the paper focuses on memcached (mc)
+  a cache, between web servers and DBs, to reduce load on DBs
+  used by many web sites
+
+mc
+  each server stores a hash table -- keys and values
+  put(k, v)
+  get(k) -> v
+  delete(k)
+  data in RAM (not disk)
+  eviction?
+    LRU list -- on put(), if mem full, delete LRU k/v pair
+    also put() can specify an expiration time
+    but FB found these insufficient -- explicit delete()s
+  very simple!
+
+how to use multiple mc servers?
+  clients hash key to pick the server
+  thus they partition the k/v pairs over mc servers
+
+Q: why partition -- why not replicate?
+  i.e. why not have each web server use just one mc server?
+  partition uses less memory
+  partition better if no one key is extremely popular
+  but partition makes writes more expensive
+  but partition forces each web server to contact many mc servers
+
+how do FB apps use mc?
+  read:
+    v = get(k) (computes hash(k) to choose mc server)
+    if v is nil {
+      v = fetch from DB
+      put(k, v)
+    }
+  write:
+    v = new value
+    send k,v to DB
+    delete(k)
+  this is a "look-aside" cache
+  looks simple!
+
+what does FB store in mc?
+  paper does not say
+  maybe userID -> name; userID -> friend list; postID -> text; URL -> likes
+  basically copies of data from DB
+
+lessons I found surprising:
+  look-aside is tricky -- consistency -- even though seems simple
+    paper is trying to integrate mutually-oblivious storage layers
+  cache is critical: not about improving UX, but about surviving huge load
+    cache misses and failures can wreck DB
+  replication vs partition comes up again and again (shared pools, regions, &c)
+  stale data a big headache
+    and each performance fix brings a new source of staleness
+  packet rate more important than query rate => batching &c
+  caches more of a bottleneck than DB
+    multiple clusters share one set of DBs
+  huge "fan-out" => parallel fetch, in-cast congestion, batching
+  memory seems to be an issue -- the reason they sometimes don't replicate
+    even with 100s of servers, terabytes of memory
+
+let's talk about performance first
+  majority of paper is about avoiding stale data
+  but staleness only arose from performance design
+
+regions (Section 5)
+
+Q: why regions as complete replicas, rather than partitioning users?
+   social net -> not much locality
+   very different from e.g. e-mail
+
+Q: why OK performance despite all writes forced to go to the master region?
+
+Q: why not PNUTS-style per-record master?
+   regions not about latency to user
+
+Q: why write to MySQL? why not all data in memcached, eliminate DB?
+   persistence, transactions, one master copy
+
+Q: why isn't MySQL write load a serious bottleneck?
+   after all, region replicas and mc only reduce read load
+   and make write load *worse* -- DB has to tell all mc servers about writes
+   they have 100s of mc servers
+   so even if writes are only 1%, still significant
+   
+within a region (Section 4)
+
+multiple mc clusters *within* each region too!
+  cluster == complete set of mc cache servers
+    i.e. a replica, at least of cached data
+
+why multiple clusters per region?
+  why not add more and more mc servers to a single cluster?
+  1. adding mc servers to cluster doesn't help single popular keys
+     replicating (multiple clusters) does help
+  2. more mcs in cluster -> each client req talks to more servers
+     and more in-cast congestion
+     client requests fetch 20 to 500 keys! over many mc servers
+     MUST request them in parallel (otherwise total latency too large)
+     so all replies come back at the same time
+     network switches, NIC run out of buffers
+  3. hard to build network for single big cluster
+     uniform client/server access
+     so cross-section b/w must be large -- major driver of cost
+     two clusters -> 1/2 the cross-section b/w
+
+but -- replicating all objects apparently not a good idea
+  "regional pool" shared by all clusters
+  unpopular objects (no need for many copies)
+  decided by *type* of object
+  suggests they are running into RAM limits
+  again, a partition-vs-replicate tension
+    clearly a good storage system needs to provide flexible controls
+
+bringing up new mc cluster was a serious performance problem
+  new cluster has 0% hit rate
+  if clients use it, will generate big DB load
+  serious enough that they didn't just accept the temporary hit
+    if ordinarily 99% hit rate, and (let's say) 2 clusters,
+    bringing up a new cluster generates a 30x spike in DB load!
+    (Table 2 has hit-rate numbers)
+  thus the clients of new cluster first get() from existing cluster (4.3)
+    and put() into new cluster
+    basically lazy copy of existing cluster to new cluster
+  better 2x load on existing cluster than 30x load on DB
+
+sending deletes from DB to mc servers apparently a problem
+  one reason: DB does not know what data is cached, is conservative
+  one per packet -- too many packets/second
+  DB -> mcrouter -- many deletes in each packet
+  mcrouter partitions by key, buffers, sends batches to mc servers
+    mcrouter may also gather deletes from many DBs, for better batching
+    
+mc server failure?
+  can't shift load to one other mc server -- too much
+  can't re-partition (like FDS) -- popular keys
+  Gutter -- pool of idle servers, clients only use after mc server fails
+
+thundering herd
+  problem is caused by invalidation, look-aside
+  lots of clients get() but miss
+    they all fetch from DB
+    they all put()
+  not good: needless DB load
+  mc gives just the first missing client a "lease"
+    lease = permission to refresh from DB
+    mc tells others "try again in a few milliseconds"
+  effect: only one client reads the DB and does put()
+
+let talk about consistency now
+
+what do they mean by consistency?
+  *not* read sees latest write
+    since not guaranteed across clusters
+  more like "not more than a few seconds stale"
+  *and* writers see their own writes
+    see-your-own-writes is a big driving force
+
+first, how are DB replicas kept consistent?
+  one region is master
+  master DBs distributed ordered log of updates to DBs in slave regions
+  slave DBs apply
+  slave DBs are complete replicas (not caches)
+  DB replication delay can be considerable (maybe up to 20 seconds)
+
+how do we feel about the consistency of the DB replication scheme?
+  good: it maintains replication, b/c single ordered write stream
+  good: we can do SQL transactions, e.g. x = x + 1
+  bad: longish replication delay
+  
+could they use the same approach for the mc servers?
+  (instead of clients invalidating and updating mc)
+  i.e. DB in each region sends writes to mc servers
+    and mc servers update
+  would be nice: preserves single ordered write stream
+
+Q: why doesn't DB send writes to mc servers?
+  1. only solves consistency if mc holds full replica
+     since caching subset, need a diff way to insert after miss
+  2. requires DB to understand how to transform data
+     probably represented differently in mc than in DB
+     e.g. friend list rows -> list
+     e.g. profile columns -> indiv mc keys
+  3. wanted read-your-writes; but DB update stream lags
+
+how do they maintain mc consistency?
+  i.e. how do client writes invalidate the *many* mc copies?
+  1. DBs send invalidates (delete()s) to all mc servers that might cache
+  2. writing client also invalidates mc in local cluster
+     for read-your-writes
+
+what went wrong?
+  lack of atomicity in two places
+  1. write: DB update vs delete()
+  2. read miss: DB read vs put()
+  led to multiple races, multiple fixes
+
+what were the races?
+
+Race 1:
+  suppose C1 wants to write
+  C1 delete()
+    C2 get(), miss
+    C2 read DB
+  C1 updates DB
+  DB sends delete()
+    C2 put()
+  oops, now mc has stale data, delete() has already happened
+  solved by client updating DB (and waiting) before delete()
+  Figure 1...
+
+Race 2:
+  key not in cache
+  C1 get(), misses
+  C1 reads DB
+    C2 updates DB
+    C2 delete() -- does nothing
+  C1 put()
+  again, now mc has stale data, delete() has already happened
+  solved with leases -- C1 gets a lease, but C2's inval deletes lease,
+    so mc ignores C1's put
+
+Race 3:
+  during cold cluster warm-up
+  remember clients try get() in warm cluster, copy to cold cluster
+  C1 updates DB
+  C1 delete() -- in cold cluster
+  C2 get(), miss -- in cold cluster
+  C2 get() from warm cluster, hits
+  C2 put() into cold cluster
+  now mc has stale data, delete() has already happened
+  solved with two-second hold-off, just used on cold clusters
+    after C1 delete(), cold ignores put()s for two seconds
+    by then, delete() will propagate via DB to warm cluster
+
+Race 4:
+  write from non-master region
+  C1 updates master DB
+  C1 delete() -- local region
+  C1 get(), miss
+  C1 read local DB  -- does not see own write!
+  later, new data arrives from master DB
+  solved by "remote mark"
+    C1 delete() marks key "remote"
+    get()/miss yields "remote"
+      tells C1 to read from *master* region
+    "remote" cleared when new data arrives from master region
+
+could they have used PNUTS?
+  pro: PNUTS versions solve read-your-writes
+  pro: PNUTS gives reader control over whether stale is OK
+  pro: PNUTS updates replicas from single write stream; perhaps fewer races
+  con: PNUTS replicates everything; not a cache, uses more RAM
+  con: PNUTS query language less expressive than MySQL
+  con: PNUTS gives less control over replica vs partition (maybe)
+
+The Question:
+  why don't clients send invalidates to Gutter servers?
+  my guess: any key might be on any Gutter server
+    so would increase delete() traffic many times
+
+lessons for storage system designers?
+  need better ideas for integrating storage layers with consistency
+  need flexible tools for controlling partition vs replication
