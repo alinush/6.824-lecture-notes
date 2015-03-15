@@ -513,14 +513,17 @@ happen? What actually happens, and which value is ultimately chosen?</p>
 <p>What will happen?</p>
 
 <ul>
-<li>what will <code>A2</code> do if it gets <code>a10v10</code> accept msg from <code>A1</code>?
+<li><strong>Q:</strong> What will <code>A2</code> do if it gets <code>a10v10</code> accept msg from <code>A1</code>?
 <ul>
-<li><strong>TODO:</strong> Is this <code>accept\_ok</code> the propose or <code>prepare\_ok</code> the prepare?
+<li><code>a10v10</code> means <code>accept(n=10,v=10)</code> which happens after the 
+<code>prepare-&gt;</code> is sent and the <code>&lt;-prepare_ok</code> is received</li>
+<li><strong>A:</strong> A2 will reject because it has a higher <code>np</code> from <code>p11</code></li>
+</ul></li>
+<li><strong>Q:</strong> What will <code>A1</code> do if it gets <code>a11v11</code> accept msg from <code>A3</code>?
 <ul>
-<li><code>a10v10</code> means <code>accept(n=10,v=10)</code> which happens after <code>prepare-&gt;</code> and <code>&lt;-prepare_ok</code></li>
+<li><strong>A:</strong> <code>A1</code> will reply <code>ACCEPT_OK</code> and change its value to 11
+because <code>n = 11 &gt; np = 10</code></li>
 </ul></li>
-</ul></li>
-<li>what will <code>A1</code> do if it gets <code>a11v11</code> accept msg from <code>A3</code>?</li>
 </ul>
 
 <p>What if A3 were to crash at this point (and not restart)?</p>

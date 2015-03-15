@@ -221,3 +221,22 @@ H4 will have the latest VT [1,1,0,0] so it will print 2 for both cat's
 
 
 **Answer:** TODO: Next quiz!
+
+Q2 2013
+=======
+
+Paxos
+-----
+
+### Question 1
+
+Why is decide phase in Paxos unnecessary?
+
+**Answer:**
+
+ - Because any other Paxos peer can learn the agreed upon value by starting a proposal loop. He will Prepare(n) and get replies with na's and va's set that will contain the accepted value.
+ - The agreement/consensus of paxos does NOT depend on the decided phase: it's a property of the whole system (i.e. have a majority of acceptors accepted the same value `v`?)
+   + The agreement/consensus can be learned _without_ doing a decided phase
+
+### Question 2
+

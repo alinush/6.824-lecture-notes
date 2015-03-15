@@ -12,6 +12,7 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 4: [Flat datacenter storage](l04-more-primary-backup.html): flat datacenter storage
  * Lecture 5: [Paxos](l05-paxos.html): Paxos, a consensus algorithm
     + [Paxos algorithm description](paxos-algorithm.html)
+    + [On some subtleties of Paxos](http://the-paper-trail.org/blog/on-some-subtleties-of-paxos/)
  * Lecture 6: [Raft](l06-raft.html): Raft, a more understandable consensus algorithm
  * Lecture 7: **Google Go** [_guest lecture_](l07-go.html) by Russ Cox
  * Lecture 8: [Harp](l08-harp.html): distributed file system

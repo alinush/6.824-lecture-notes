@@ -370,10 +370,13 @@ happen? What actually happens, and which value is ultimately chosen?
 
 What will happen?
 
- - what will `A2` do if it gets `a10v10` accept msg from `A1`?
-   + **TODO:** Is this `accept\_ok` the propose or `prepare\_ok` the prepare?
-     - `a10v10` means `accept(n=10,v=10)` which happens after `prepare->` and `<-prepare_ok`
- - what will `A1` do if it gets `a11v11` accept msg from `A3`?
+ - **Q:** What will `A2` do if it gets `a10v10` accept msg from `A1`?
+   - `a10v10` means `accept(n=10,v=10)` which happens after the 
+     `prepare->` is sent and the `<-prepare_ok` is received
+   - **A:** A2 will reject because it has a higher `np` from `p11`
+ - **Q:** What will `A1` do if it gets `a11v11` accept msg from `A3`?
+   - **A:** `A1` will reply `ACCEPT_OK` and change its value to 11
+     because `n = 11 > np = 10`
 
 What if A3 were to crash at this point (and not restart)?
 
