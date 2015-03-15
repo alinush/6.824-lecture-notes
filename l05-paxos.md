@@ -272,7 +272,7 @@ So:
             v' = v_a with highest n_a; choose own v otherwise
             send accept(n, v') to all
             if accept_ok(n) from majority:
-              send decided(v') to all
+              send decided(n, v') to all
 
         acceptor state:
           must persist across reboots
