@@ -1,5 +1,51 @@
 <p><strong>TODO:</strong> Harp, understand how primary forwards ops to backups and/or witnesses. What happens when some of them fail, etc.</p>
 
+<p><strong>TODO:</strong> Flat data center storage. Blob ID + tract # are mapped to a tract entry. In FDS there are <code>O(n^2)</code> tract entries. 3 servers per entry. All possible combinations. Why?</p>
+
+<ul>
+<li><p>Why <code>O(n^2)</code>? We want replication => need 2 servers per TLT entry</p>
+
+<ul>
+<li>simple, but slow recovery: <code>n</code> entries, TLT entry <code>i</code>: server <code>i</code>, sever <code>i+1</code>
+<ul>
+<li>when a server <code>i</code> fails, only 2 others have its data
+<ul>
+<li><code>i-1</code> and <code>i+1</code></li>
+</ul></li>
+</ul></li>
+<li>better: have <code>O(n^2)</code> entries so that every pair occurs in the TLT
+<ul>
+<li>when a disk <code>i</code> fails, it occurs in <code>n-1</code> pairs 
+with other <code>n-1</code> servers
+<ul>
+<li>can use this to copy data from <code>n-1</code> disks at the same time</li>
+</ul></li>
+<li>the problem: if a 2nd disk fails at the same time, then we lose data
+<ul>
+<li>because there will be no way to get the data for the pair
+formed by these two failed disks</li>
+</ul></li>
+</ul></li>
+<li>even better: <code>O(n^2)</code> entries, all pairs of servers, and 
+for every pair, if doing k-level replication (<code>k &gt; 2</code>), we add
+k-2 randomly picked servers to each entry's pair</li>
+</ul></li>
+<li><p>But how are they mapped on disk? </p>
+
+<ul>
+<li>For now assume a dictionary/btree structure. </li>
+</ul></li>
+<li>When replacing a failed server, how is data transfer done? 
+<ul>
+<li>Is it just copied from the other servers in the TLT entry? </li>
+<li>How is a replacement picked? (Randomly apparently) </li>
+<li>Is the replacement server moved from its old TLT entry to the new one, or is it also left in the old TLT entry as well?
+<ul>
+<li>Figure 2 from paper suggests it is left in the old TLT entry</li>
+</ul></li>
+</ul></li>
+</ul>
+
 <p><strong>TODO:</strong> Primary backup replication, remind yourself when view is allowed to change.</p>
 
 <p><strong>TODO:</strong> Paxos, try to understand why np/na are needed and what happened if one of them was not used.</p>

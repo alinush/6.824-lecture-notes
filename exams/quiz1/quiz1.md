@@ -240,3 +240,29 @@ Why is decide phase in Paxos unnecessary?
 
 ### Question 2
 
+
+**Answer:**
+
+
+    S1 starts proposal w/ n=1 and v=A
+    S2 starts proposal w/ n=2 and v=B
+
+    S1: p1 p2   rejected a1   
+    S2: p1 p2   rejected a1    
+    S3: p1 p2   rejected a1
+
+    S1 did not reach agreement after 1st round
+    S1 restarts proposal w/ n=3 and v=A
+
+    S1: p1 p2   rejected a1  |  p3    rejected a2
+    S2: p1 p2   rejected a1  |  p3    rejected a2
+    S3: p1 p2   rejected a1  |  p3    rejected a2
+
+    S2 does not reach agreement after 1st round
+
+Flat datacenter storage
+-----------------------
+
+### Question 3
+
+**Answer:**  

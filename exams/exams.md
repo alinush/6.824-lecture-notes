@@ -1,5 +1,30 @@
 **TODO:** Harp, understand how primary forwards ops to backups and/or witnesses. What happens when some of them fail, etc.
 
+**TODO:** Flat data center storage. Blob ID + tract # are mapped to a tract entry. In FDS there are `O(n^2)` tract entries. 3 servers per entry. All possible combinations. Why?
+
+ - Why `O(n^2)`? We want replication => need 2 servers per TLT entry
+   + simple, but slow recovery: `n` entries, TLT entry `i`: server `i`, sever `i+1`
+     - when a server `i` fails, only 2 others have its data
+         + `i-1` and `i+1`
+   + better: have `O(n^2)` entries so that every pair occurs in the TLT
+     - when a disk `i` fails, it occurs in `n-1` pairs 
+       with other `n-1` servers
+         + can use this to copy data from `n-1` disks at the same time
+     - the problem: if a 2nd disk fails at the same time, then we lose data
+         + because there will be no way to get the data for the pair
+           formed by these two failed disks
+   + even better: `O(n^2)` entries, all pairs of servers, and 
+     for every pair, if doing k-level replication (`k > 2`), we add
+     k-2 randomly picked servers to each entry's pair
+
+ - But how are they mapped on disk? 
+   + For now assume a dictionary/btree structure. 
+ - When replacing a failed server, how is data transfer done? 
+   + Is it just copied from the other servers in the TLT entry? 
+   + How is a replacement picked? (Randomly apparently) 
+   + Is the replacement server moved from its old TLT entry to the new one, or is it also left in the old TLT entry as well?
+     - Figure 2 from paper suggests it is left in the old TLT entry
+
 **TODO:** Primary backup replication, remind yourself when view is allowed to change.
 
 **TODO:** Paxos, try to understand why np/na are needed and what happened if one of them was not used.
