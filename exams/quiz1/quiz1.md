@@ -265,4 +265,182 @@ Flat datacenter storage
 
 ### Question 3
 
-**Answer:**  
+**Answer:** If the failed tractserver is replaced with just ONE server from the empty pool that is strictly worse than replacing it with multiple already live servers, because it is faster to write to more servers at the same time than writing to a single server.
+
+Spanner
+-------
+
+### Question 4-6
+
+TODO: next quiz
+
+Distributed Shared Memory
+-------------------------
+
+### Question 7
+
+**Answer:** write diffs fixed the write amplification problem, where writing one byte on a page resulted in sending the whole page to a reader. Thus, since there's no such problem in byte-IVY (i.e. writing a byte means sending a byte to a reader), the answer is no.
+
+
+### Question 8
+
+**Answer:** LRC fixed the false sharing problem, where if two processes wrote different variables on the same page, that page would be bounced back and forth between the two processes, even though the two processes never needed to hear about each other's changes (they did not share those variables)
+
+This question can be answered in two ways:
+
+1. If you reasonable assume that the smallest variable is a byte (which is true on today's computers), then when two processes write the same page they are writing the same variable and the sharing is _true_. There can't be any false sharing by "construction" so to speak. Thus, LRC is not needed.
+
+2. If you consider variables that are smaller than a byte (which is cuckoo), then maybe there's an argument for how LRC can help with false sharing within a 1-byte page with 2 4-bit variables or with 4 2-bit variables, etc.
+
+CBCAST
+------
+
+Scenario:
+
+    sX - sends X to all
+    rX - receives message X, does not deliver to app yet
+    dX - delivers X to app
+
+
+    M1: sX            sZ
+    M2:     rX dY sY
+    M3:
+
+### Question 9
+
+    X -- [1,0,0]
+    Y -- [1,1,0]
+    Z -- [2,0,0] if M1 didn't get Y yet
+         [2,0,1] if M1 got Y
+
+### Question 10
+
+Can M3 get msgs in the following orders?
+
+    X Y Z - yes [0,0,0] -> [1,0,0] -> [1,1,0] -> [2,1,0]
+    X Z Y - yes [0,0,0] -> [1,0,0] -> [2,0,0] -> [2,1,0]
+    Y X Z - no  [0,0,0] cannot go to [1,1,0] must wait for X
+    Y Z X - no same as before
+    Z X Y - nope
+    Z Y X - nope
+
+Lab 2
+-----
+
+    P:S0    B:S1
+    S1 has copy of S0 state
+    S0 and S1 have been processing requests
+    ...
+    S0 fwds req to S1, but S0's rpclib returns an error indicating no reply from S1
+    S0 did not hear of any view change from viewserver
+
+### Question 11
+
+Can S0 execute the request and return a success to client?
+
+**Answer:** That could be a recipe for disaster, because S1 could have failed and the viewserver could be in the middle of realizing this. If S0 executes the op and replies and if S1 really went down and did not have a chance to replicate, then we could create an inconsistent state. If S1 comes back quickly enough and the view remains the same, then S1 missed this op. Once S1 becomes primary, it will not have the op => inconsistency.
+
+### Question 12
+
+**Answer:**  According to our lab specs, no. The client calls are NOT allowed to fail, so if S0 tells the client 'sorry boss, no can't do...' then the client will have to shrug its shoulders and pretend like the op succeeded: the spec doesn't allow it to fail.
+
+In a realistic world, the client can return an error code to the caller and the caller can retry the client call. So S0 could return a failure to the client, like a timeout.
+
+**Their answer:** Their angle was that the backup could have executed the primary's replicate op, but the reply got lost. And so if the primary tells the client it has failed, that would be incorrect. And now the primary and the backup are not replicas anymore. I guess I didn't even look that far because I assumed informing the client of a failure would be unacceptable since he won't know how to handle it. However, the client could just retry again.
+
+### Question 13
+
+**Answer:** 
+
+    C1 sends op to S1
+    S1 starts agreement for the op at seq# i
+    S1 replies to C1 when it gets agreement for op at seq #i
+    Reply gets lost
+    C1 retries, sends op to S2
+    S2 starts agreement for the op at seq #j, j != i (because maybe S2 did not take part in S1's agreement at seq# i, maybe it was partitioned)
+    S2 gets agreement
+    S2 replies to C1
+    C1 gets reply
+
+    ...
+
+    Now servers have the same op twice in the log at seq #i and #j
+
+    If this is an Append() op, then we create an inconsistent state
+
+Q2 2014
+=======
+
+Lab 4
+-----
+
+### Question 1
+
+TODO for quiz 2
+
+Bayou
+-----
+
+### Question 2
+
+TODO for quiz 2
+
+### Question 3
+
+TODO for quiz 2
+
+### Question 4
+
+TODO for quiz 2
+
+### Question 
+
+Dynamo
+------
+
+### Question 5
+
+TODO for quiz 2
+
+Two phase commit or Paxos
+-------------------------
+
+### Question 6
+
+TODO for quiz 2
+
+Argus
+-----
+
+### Question 7
+
+TODO for quiz 2
+
+MapReduce
+---------
+
+### Question 8
+
+TODO for quiz 2
+
+### Question 9
+
+TODO for quiz 2
+
+Bitcoin
+-------
+
+### Question 10
+
+TODO for quiz 2
+
+Memcached at Facebook
+---------------------
+
+### Question 11
+
+TODO for quiz 2 
+
+### Question 12
+
+TODO for quiz 2
