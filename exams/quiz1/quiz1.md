@@ -444,3 +444,13 @@ TODO for quiz 2
 ### Question 12
 
 TODO for quiz 2
+
+Q1 2012
+=======
+
+Plan 9
+------
+N/A
+
+Dinner
+------
