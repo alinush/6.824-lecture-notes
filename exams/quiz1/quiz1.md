@@ -222,7 +222,7 @@ H4 will have the latest VT [1,1,0,0] so it will print 2 for both cat's
 
 **Answer:** TODO: Next quiz!
 
-Q2 2013
+Q1 2013
 =======
 
 Paxos
@@ -368,7 +368,7 @@ In a realistic world, the client can return an error code to the caller and the 
 
     If this is an Append() op, then we create an inconsistent state
 
-Q2 2014
+Q2 2013
 =======
 
 Lab 4
