@@ -60,6 +60,8 @@ that ensure reads observe the desired writes.
 
 **TODO:** Causal consistency: Does it ensure previous writes that did NOT contribute to current write
 are also made visible?
+ 
+ - Q1 2009, Question 11 seems to suggest yes.
 
 **TODO:** Vector timestamps and causal consistency
 

@@ -321,6 +321,7 @@ way to deal with it. It also illustrates how non-straightforward replication can
  - What if client sends a WRITE and (before WRITE finishes) a READ of same data?
    + READ may see data *before* the WRITE!
    + Why is that OK?
+   + The client sent the READ and the WRITE concurrently. It has no right to expect one order or the other. So if the READ doesn't see the WRITE's effects, that's acceptable -- it's the same answer you'd get if the READ had moved through the network faster than the WRITE, which could happen. You can only expect a READ to see a WRITE's effect if you issue the WRITE, wait for a reply to the WRITE, and then issue the READ.
 
 #### How does failure recovery work?
 

@@ -454,3 +454,29 @@ N/A
 
 Dinner
 ------
+
+**Answer:** Both computers' client code lock `m` and the server code cannot respond because it cannot acquire the lock
+
+Q2 2012
+=======
+
+Harp
+----
+
+Paxos
+-----
+
+### Question 9
+
+**Answer:**
+
+    S1 proposes w/ n = 1, v = A
+    S2 proposes w/ n = 2, v = B
+    S3 proposes w/ n = 3, v = C
+
+    S1: p1 a1vA          p3 a3vA
+    S2: p2         a2vB  p3 a3vA 
+    S3: p1      p2 a2vB  p3 a3vA
+
+    consensus, but on different values
+
