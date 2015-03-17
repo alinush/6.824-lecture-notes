@@ -6,75 +6,81 @@ SOSP 95
 some material from Flexible Update Propagation for Weakly Consistent
 Replication, SOSP 97
 
-Big picture
-  Last lecture: file sync, optimistic consistency, detect conflicts
-  This lecture:
-    automatic conflict resolution
-    update functions
-    update log
-    logical clocks
-    eventual consistency
+Why this paper?
+  Eventual consistency is pretty common
+    git, iPhone sync, Dropbox, Amazon Dynamo
+  Why do people like eventual consistency?
+    fast read/write of local copy (no primary, no paxos)
+    disconnected operation
+  What goes wrong?
+    doesn't look like "single copy" (no primary, no paxos)
+    conflicting writes to different copies
+    how to reconcile them when discovered?
+  Bayou has the most sophisticated reconciliation story
 
 Paper context:
   Early 1990s (like Ficus)
   Dawn of PDAs, laptops, tablets
     H/W clunky but clear potential
     Commercial devices did not have wireless
-  No pervasive WiFi or cellular data
+  Devices might be off or not have network access
+    This problem has not gone away!
+    iPhone sync, Dropbox sync, Dynamo
 
-Let's build a meeting scheduler
+Let's build a conference room scheduler
  Only one meeting allowed at a time (one room).
  Each entry has a time and a description.
  We want everyone to end up seeing the same set of entries.
 
 Traditional approach: one server
-  Server processes requests one at a time
+  Server executes one client request at a time
   Checks for conflicting time, says yes or no
   Updates DB
   Proceeds to next request
   Server implicitly chooses order for concurrent requests
 
 Why aren't we satisfied with central server?
- I want my calendar on my iPhone.
-   I.e. database replicated in every node.
+ I want to use scheduler on disconnected iPhone &c
+   So need DB replica in each node.
    Modify on any node, as well as read.
  Periodic connectivity to net.
- Periodic bluetooth contact with other calendar users.
+ Periodic direct contact with other calendar users (e.g. bluetooth).
 
 Straw man 1: merge DBs.
  Similar to iPhone calendar sync, or file sync.
- Might require lots of network b/w.
- What if there's a conflict? IE two meetings at same time.
-   iPhone just schedules them both!
-   But we want automatic  conflict resolution.
-
-Idea: update functions
-  Have update be a function, not a new value.
+ May need to compare every DB entry -- lots of time and net b/w.
+ Still need a story for conflicting entries, i.e. two meetings at same time.
+   User may not be available to decide at time of DB merge.
+   So need automatic reconciliation.
+ 
+Idea for conflicts: update functions
+  Application supplies a function, not a new value.
   Read current state of DB, decide best change.
   E.g. "Meet at 9 if room is free at 9, else 10, else 11."
     Rather than just "Meet at 9"
-  Function must be deterministic
-    Otherwise nodes will get different answers
+  Function can make reconciliation decision for absent user.
+  Sync exchanges functions, not DB content.
 
-Challenge:
-  A: staff meeting at 10:00 or 11:00
-  B: hiring meeting at 10:00 or 11:00
+Problem: can't just apply update functions to DB replica
+  A's fn: staff meeting at 10:00 or 11:00
+  B's fn: hiring meeting at 10:00 or 11:00
   X syncs w/ A, then B
   Y syncs w/ B, then A
   Will X put A's meeting at 10:00, and Y put A's at 11:00?
 
 Goal: eventual consistency
   OK for X and Y to disagree initially
-  But after enough syncing, everyone should agree
+  But after enough syncing, all nodes' DBs should be identical
 
 Idea: ordered update log
-  Ordered list of updates at each node.
-  DB is result of applying updates in order.
+  Ordered log of updates at each node.
   Syncing == ensure both nodes have same updates in log.
+  DB is result of applying update functions in order.
+  Same log => same order => same DB content.
 
 How can nodes agree on update order?
   Update ID: <time T, node ID>
-  Assigned by node that creates the update.
+  T is creating node's wall-clock time.
   Ordering updates a and b:
     a < b if a.T < b.T or (a.T = b.T and a.ID < b.ID)
 
@@ -85,56 +91,47 @@ Example:
    the result of executing update functions in timestamp order
    staff at 10:00, hiring at 11:00
 
-What's the status before any syncs?
-  I.e. content of each node's DB
+What DB content before sync?
   A: staff at 10:00
   B: hiring at 10:00
   This is what A/B user will see before syncing.
 
 Now A and B sync with each other
+  Each sorts new entries into its log, order by time-stamp
   Both now know the full set of updates
-  Can each just run the new update function against its DB?
-    A: staff at 10, hiring at 11
-    B: hiring at 10, staff at 11
-  That's not the right answer!
+  A can just run B's update function
+  But B has *already* run B's operation, too soon!
 
 Roll back and replay
-  Re-run all update functions, starting from empty DB
-  Since A and B have same set of updates
-    they will arrive at same final DB
-  We will optimize this in a bit
+  B needs to to "roll back" DB, re-run both ops in the right order
+  Big point: the log holds the truth; the DB is just an optimization
+  We will optimize roll-back in a bit
 
-Displayed calendar entries are "tentative"
+Displayed meeting room calendar entries are "tentative"
   B's user saw hiring at 10, then it changed to hiring at 11
-  You never know if there's some <15,C> you haven't yet seen
-    That will change your meeting time yet again
-    And force re-execution of lots of update functions
   
 Will update order be consistent with wall-clock time?
   Maybe A went first (in wall-clock time) with <10,A>
-  Node clocks unlikely to be synchronized
-  So B could then generates <9,B>
+  Node clocks unlikely to be perfectly synchronized
+  So B could then generate <9,B>
   B's meeting gets priority, even though A asked first
-  Not "externally consistent" (Spanner gets this right...)
+  Not "externally consistent"
 
 Will update order be consistent with causality?
   What if A adds a meeting, 
-    then B sees it,
+    then B sees A's meeting,
     then B deletes A's meeting.
   Perhaps
     <10,A> add
     <9,B> delete -- B's clock is slow
   Now delete will be ordered before add!
-    Unlikely to work
-    Differs from wall-clock time case b/c system *knew* B had seen the add
 
-Lamport logical clocks
+Lamport logical clocks for causal consistency
   Want to timestamp events s.t.
-    node observes E1, then generates E2, TS(E2) > TS(E1)
-  Thus other nodes will order E1 and E2 the same way.
-  Each node keeps a clock T
-    increments T as real time passes, one second per second
-    T = max(T, T'+1) if sees T' from another node
+    if node observes E1, then generates E2, then TS(E2) > TS(E1)
+  So all nodes will order E1, then E2
+  Tmax = highest time-stamp seen from any node (including self)
+  T = max(Tmax + 1, wall-clock time) -- to generate a timestamp
   Note properties:
     E1 then E2 on same node => TS(E1) < TS(E2)
     BUT
@@ -142,38 +139,38 @@ Lamport logical clocks
 
 Logical clock solves add/delete causality example
   When B sees <10,A>,
-    B will set its clock to 11, so
+    B will set its Tmax to 10, so
     B will generate <11,B> for its delete
 
 Irritating that there could always be a long-delayed update with lower TS
   That can cause the results of my update to change
+    User can never be sure if meeting time is final!
   Would be nice if updates were eventually "stable"
     => no changes in update order up to that point
     => results can never again change -- you know for sure when your meeting is
-    => no need to re-run update function
+    => don't have to roll back, re-run committed updates
 
-How about a fully decentralized "commit" scheme?
-  You want to know if update <10,A> is stable
+Bad idea: a fully decentralized "commit" scheme
+  Proposal: <10,A> is stable if all nodes have seen all updates w/ TS <= 10
   Have sync always send in log order -- "prefix property"
   If you have seen updates w/ TS > 10 from *every* node
     Then you'll never again see one < <10,A>
     So <10,A> is stable
-  Spanner does this within a Paxos replica group
-  Why doesn't Bayou do something like this?
+  Why doesn't Bayou do this?
 
 How does Bayou commit updates, so that they are stable?
  One node designated "primary replica".
  It marks each update it receives with a permanent CSN.
    Commit Sequence Number.
    That update is committed.
-   So a complete time stamp is <CSN, local-TS, node-id>
- CSN notifications are exchanged between nodes.
+   So a complete time stamp is <CSN, local-time, node-id>
+   Uncommitted updates come after all committed updates.
+ CSN notifications are synced between nodes.
  The CSNs define a total order for committed updates.
    All nodes will eventually agree on it.
-   Uncommitted updates come after all committed updates.
 
 Will commit order match tentative order?
-  Often yes.
+  Often.
   Syncs send in log order (prefix property)
     Including updates learned from other nodes.
   So if A's update log says
@@ -196,6 +193,7 @@ Will commit order always match tentative order?
   So: committing may change order.
   
 Committing allows app to tell users which calendar entries are stable.
+  A stable meeting room time is final.
 
 Nodes can discard committed updates.
   Instead, keep a copy of the DB as of the highest known CSN.
@@ -215,6 +213,8 @@ How do I sync if I've discarded part of my log?
      Then play his tentative updates into that DB.
    If node X's highest CSN is greater than mine,
      X doesn't need my DB.
+ In practice, Bayou nodes keep the last few committed updates.
+   To reduce chance of having to send whole DB during sync.
 
 How to sync?
   A sending to B
@@ -246,53 +246,52 @@ How could we cope with a new server Z joining the system?
 
 What happens when Z retires (leaves the system)?
   We want to stop including Z in VVs!
-  How to get out the news that Z is gone?
+  How to announce that Z is gone?
     Z sends update <-,?,Z> "retiring"
   If you see a retirement update, omit Z from VV
   How to deal with a VV that's missing Z?
   If A has log entries from Z, but B's VV has no Z entry:
+    e.g. A has <-,25,Z>, B's VV is just [A:20, B:21]
     Maybe Z has retired, B knows, A does not
     Maybe Z is new, A knows, B does not
-  Could scan both logs, but would be expensive
-    And maybe retirement update has committed and dropped from B's log!
   Need a way to disambiguate: Z missing from VV b/c new, or b/c retired?
 
 Bayou's retirement plan
-  Z's ID is really <Tz,X>
-    X is server Z first contacted
-    Tz is X's logical clock
-    X issues <-,Tz,X>:"new server Z"
-    Z gets a copy of the new server update
-      logical clock orders "new server Z" before any of Z's updates
-  So, A syncs to B, A has log entries from Z, B's VV has no Z entry
-  Z's ID is <20,X>
+  Z joins by contacting some server X
+  Z's ID is <Tz,X>
+    Tz is X's logical clock as of when Z joined
+  X issues <-,Tz,X>:"new server Z"
+
+How does ID=<Tz,X> scheme help disambiguate new vs forgotten?
+  Suppose Z's ID is <20,X>
+  A syncs to B
+    A has log entry from Z <-,25,<20,X>>
+    B's VV has no Z entry
   One case:
     B's VV: [X:10, ...]
     10 < 20 implies B hasn't yet seen X's "new server Z" update
-  Another case:
+  The other case:
     B's VV: [X:30, ...]
     20 < 30 implies B once knew about Z, but then saw a retirement update
-  More complex case:
-    B's VV doesn't even contain an entry for X
-    X is itself <-,Tx,W>, maybe B has an entry for W
-    So B can decide if X is new or retired (see above)
-    If X is new to B, Z must also be new (== B can't have seen X's "new server Z")
-    If X is retired, i.e. B saw X's retirement write,
-      B must have seen "new server Z" by prefix property,
-      so Z missing from B's VV => B knows Z is retired
 
-How did all this work out?
-  Replicas, write any copy, and sync are good ideas
-    Now used by both user apps *and* multi-site storage systems
-  Requirement for p2p interaction when not on Internet is debatable
-    iPhone apps seem to work fine by contacting server via cell-phone net
-  Central commit server seems reasonable
-    I.e. you don't need pure peer-to-peer commit
-    Protocol much simpler since central server does all resolution
-  Bayou introduced some very influential design ideas
-    Update functions
-    Ordered update log is the real truth, not the DB
-    Allowed general purpose conflict resolution
-  Bayou made good use of existing ideas
-    Eventual consistency
-    Logical clock
+Let's step back
+
+Is eventual consistency a useful idea?
+  Yes: people want fast writes to local copies
+  iPhone sync, Dropbox, Dynamo, Riak, Cassandra, &c
+
+Are update conflicts a real problem?
+  Yes -- all systems have some more or less awkward solution
+
+Is Bayou's complexity warranted?
+  I.e. log of update functions, version vectors, tentative operations
+  Only critical if you want peer-to-peer sync
+    I.e. both disconnected operation AND ad-hoc connectivity
+  Only tolerable if humans are main consumers of data
+  Otherwise you can sync through a central server (iPhone, Dropbox)
+  Or read locally but send updates through a master (PNUTS, Spanner)
+
+But there's are good ideas for us to learn from Bayou
+  Update functions for automatic application-driven conflict resolution
+  Ordered update log is the real truth, not the DB
+  Logical clock for causal consistency
