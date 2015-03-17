@@ -1,13 +1,302 @@
 <h1>6.824 2015 Lecture 12: Eventual Consistency</h1>
 
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the
+6.824 <a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from 
+Spring 2015.</p>
+
+<h2>Exam</h2>
+
+<ul>
+<li>Bring papers and lecture notes for exam</li>
+</ul>
+
+<h2>Eventual consistency</h2>
+
+<ul>
+<li>a set of copies of the data, where applications can use any copy of the data</li>
+<li>local read/write</li>
+<li>even if the network breaks, I can still use the local copy
+<ul>
+<li><em>disconnected operation</em></li>
+</ul></li>
+<li>ad-hoc synchronization
+<ul>
+<li>laptop, phone, tablet can synchronize amongst each other instead 
+of relying on Internet connection</li>
+</ul></li>
+<li>can work with database servers that have different data and synchronize
+with each other</li>
+<li>similar to Ficus, but Bayou has more sophisticated conflict resolution</li>
+</ul>
+
+<h3>Conflicts</h3>
+
+<ul>
+<li>what to do about the inevitable conflicts that happen when you allow people
+to write to their local copies and synchronize them later</li>
+</ul>
+
+<h3>Meeting room scheduler</h3>
+
+<p>Traditional approach (central server):</p>
+
+<pre><code>    PDA
+|-----------------
+|9am    824 staff     |----------------|
+|--                   |  Server        |
+|10am        -------------&gt; | DB   |   |
+|--                         | 9am  |   |
+|11am                       | 10am |   |
+|--                                    |
+|12pm                                  |
+|--
+</code></pre>
+
+<p>Not a good approach because it requires everyone to have connectivity to
+the server.</p>
+
+<p>Would be nice if you have PDA send appointment to laptop, whoc can then send it
+to the server.</p>
+
+<pre><code>    PDA
+|-----------------
+|9am    824 staff     |----------------|
+|--                   |  Server        |
+|10am                       | DB   |   |
+|--                         | 9am  |   | &lt;-----\
+|11am                       | 10am |   |        \
+|--                                    |         |
+|12pm                                  |      laptop
+|--      \                                      /
+          \-----------------------------------&gt;/
+</code></pre>
+
+<p>Main idea: Update functions. Instead of the application saying "write this DB
+record", the application hands a function that behaves differently based on
+what's in the DB.</p>
+
+<p>Example:</p>
+
+<pre><code>if free at 10am
+    reserve @10am
+else if free at 9am
+    reserve @9am
+else
+    reserve
+</code></pre>
+
+<p>Bayou takes this function from the PDA and gives it to the laptop.</p>
+
+<p>Suppose A and B want the same times:</p>
+
+<pre><code>A wants: either staff meeting at 10  or 11
+B wants: hiring meeting at 10 or 11
+</code></pre>
+
+<p>If you simply apply these functions to node A's and B's databases, that's not
+enough:</p>
+
+<pre><code>X syncs with A
+10am staff meeting
+X syncs with B
+11am hiring meeting
+
+Y syncs with B
+10am hiring meeting
+Y syncs with A
+11am staff meeting
+
+now X and Y have differing views
+</code></pre>
+
+<p><code>=&gt;</code> have to execute <code>A</code>'s and <code>B</code>'s update functions in the same order</p>
+
+<p><strong>Next idea:</strong> number update functions, so that you can view them as being a log</p>
+
+<ul>
+<li>Classic way to order things is to stamp them with numbers and sorting</li>
+<li>initially let the Bayou update ID be <code>&lt;time T, nodeId&gt;</code>
+<ul>
+<li>possible for time <code>T</code> to be the same for two update IDs, but then
+the node IDs will differ (presumably)</li>
+</ul></li>
+<li>ordering rules:
+<ul>
+<li><code>a &lt; b</code> if <code>a.T &lt; b.T</code> or <code>a.T == b.T and a.ID &lt; b.ID</code></li>
+</ul></li>
+</ul>
+
+<p>If we take the previous example:</p>
+
+<pre><code>&lt;T=10, nodeId=A&gt;, A wants: either staff meeting at 10  or 11
+&lt;T=20, nodeId=B&gt;, B wants: hiring meeting at 10 or 11
+
+When Y syncs with B and then with A, it'll see A's update occurred earlier
+so it undoes B's update, applies A's and then B's again
+</code></pre>
+
+<p>We need to be able to roll back and re-execute the log.</p>
+
+<p>Are the updates consistent with causality?</p>
+
+<pre><code>PDA A adds a meeting
+A synchronizes with B
+B deletes A's meeting
+</code></pre>
+
+<p>If some 3rd node sees these updates, it would be necessary to have the meeting 
+creation timestamp be smaller than the deletion timestamp.</p>
+
+<h3>Lamport logical clock</h3>
+
+<p>Each node maintains <code>T_max</code>, the highest timestamp this node has ever seen
+from itself or from another node.</p>
+
+<p>When a node creates an event and adds it to the log, it picks timestamp <code>T =
+max (T_max + 1, wall clock time)</code></p>
+
+<ul>
+<li>new timestamps are always higher than timestamps the node has ever seen</li>
+</ul>
+
+<h3>Tentative entries, commit scheme</h3>
+
+<p>It's annoying that entries in the calendar are always displayed as tentative
+because another (earlier) update could come in and replace it.</p>
+
+<ul>
+<li>maybe because the new update sender was disconnected for a long time</li>
+</ul>
+
+<p>We're looking for a way to all agree that anything above a certain point in the
+log will never change (it's frozen, no one can modify stuff there)</p>
+
+<p><strong>Bad idea:</strong> One possibility is to have all the replicas exchange summary w/
+each other about what they've seen:</p>
+
+<ul>
+<li>X has seen all A's updates through 20, B's through 17, and C's through 72
+<ul>
+<li>these are timestamps (logical clocks)</li>
+</ul></li>
+<li>we know that X will never create a timestamp less than 72</li>
+<li>similarly, node Y also has a min timestamp that he will generate next
+<ul>
+<li>say 30</li>
+</ul></li>
+<li>we can take the minimum over all these minimums <code>min(30, 72) = 30</code> and
+commit all operations up to that point</li>
+<li>problem is it requires every node to be up and connected to all other nodes</li>
+</ul>
+
+<h4>Commit scheme for Bayou</h4>
+
+<p>They have one magic node, a primary. Every update that passes through the primary,
+the primary stamps it with a <em>commit sequence number</em> (CSN), the actual ordering number
+becomes: <code>&lt;csn, T, node ID&gt;</code></p>
+
+<ul>
+<li>primary does not wait for earlier updates (with smaller <code>T</code>) to arrive first,
+it just timestamps things as they come</li>
+<li>commit preserves causal order</li>
+<li>commit does not preserve wall clock order</li>
+</ul>
+
+<p>If you don't have a CSN: <code>&lt;-, T, nodeID&gt;</code>. All commited operations are considered
+to occur before uncommitted ones. </p>
+
+<p><strong>TODO:</strong> not clear what this example was supposed to show</p>
+
+<pre><code>A's meeting created
+B's meeting created
+B synchronizes with C
+B synchronizes with A
+C synchronizes with primary
+primary applies CSN to A's op, but not B's
+B synchronizes with primary
+</code></pre>
+
+<h3>Vector timestamps</h3>
+
+<p>Synchronization</p>
+
+<pre><code>A has 
+    &lt;-, 10, X&gt;
+    &lt;-, 20, Y&gt;
+    &lt;-, 30, X&gt;
+    &lt;-, 40, X&gt;
+B has
+    &lt;-, 10, X&gt;
+    &lt;-, 20, Y&gt;
+    &lt;-, 30, X&gt;
+
+A syncs with B
+     sends a version vector to B describe which updates it has
+     from every node
+        A: [X 40, Y 20]
+        (remember that the timestamps are always increased by senders)
+        B: [X 30, Y 20]
+        If B compares A's VT with his, he notices that he needs 
+        updates by X between timestamp 30 and 40
+</code></pre>
+
+<h3>A new node joins</h3>
+
+<p>Now some VTs will have an entry for some new node Z. For instance, in the previous 
+example</p>
+
+<pre><code>A can send [X 40, Y 20, Z 60] to B
+</code></pre>
+
+<p>We also need a way to remove nodes.</p>
+
+<p>But B won't know if <code>Z</code> is newly added or newly deleted?</p>
+
+<pre><code>Z joins the system
+Z talks to X
+X generates Z's unique node ID
+    Z's ID = &lt;Tz, X's node ID&gt;, where Tz is the time Z talked to X
+X sends an update timestamped with &lt;-, Tz, X&gt; that says "new server z"
+    Everybody will see this first before seeing Z's updates
+        Z's updates have timestamps higher than Tz
+</code></pre>
+
+<ul>
+<li>note that IDs are unbounded in size</li>
+</ul>
+
+<p>Forgetting nodes:</p>
+
+<pre><code>Z's ID = &lt;20, X&gt;
+A syncs -&gt; B
+A has log entry from Z &lt;-, 25, &lt;20, X&gt;&gt;
+B has no VT entry for Z
+</code></pre>
+
+<p>Now B needs to figure out from A's updates if Z was added or removed</p>
+
+<p>Case 1: If B's VT entry for <code>X</code> is less than the timestamp in <code>Z</code>'s ID, then
+that means that <code>B</code> hasn't even seen the creation for <code>Z</code>, let alone any updates
+from <code>Z</code> => <code>B</code> should create the entry for <code>Z</code> because <code>Z</code> is new to <code>B</code></p>
+
+<p>Case 2: If B's VT entry for <code>X</code> is higher than the timestamp in <code>Z</code>'s ID, (ie.
+B has seen updates from <code>X</code> after it created <code>Z</code>), then B must've seen <code>Z</code>'s 
+creation <code>=&gt;</code> B must have seen a deletion notice</p>
+
+<p><strong>Q:</strong> If Z's entry is missing from <code>B</code> then <code>Z</code> (probably?) says <code>&lt;-, T, Z&gt; bye, T &gt; Tz</code></p>
+
+<hr />
+
 <p>Managing Update Conflicts in Bayou, a Weakly Connected Replicated
 Storage System Terry, Theimer, Petersen, Demers, Spreitzer, Hauser,
-SOSP 95
-some material from Flexible Update Propagation for Weakly Consistent
+SOSP 95</p>
+
+<p>some material from Flexible Update Propagation for Weakly Consistent
 Replication, SOSP 97</p>
 
-<p>Big picture
-  Last lecture: file sync, optimistic consistency, detect conflicts
+<p>Big picture</p>
+
+<p>Last lecture: file sync, optimistic consistency, detect conflicts
   This lecture:
     automatic conflict resolution
     update functions
@@ -15,8 +304,9 @@ Replication, SOSP 97</p>
     logical clocks
     eventual consistency</p>
 
-<p>Paper context:
-  Early 1990s (like Ficus)
+<p>Paper context:</p>
+
+<p>Early 1990s (like Ficus)
   Dawn of PDAs, laptops, tablets
     H/W clunky but clear potential
     Commercial devices did not have wireless

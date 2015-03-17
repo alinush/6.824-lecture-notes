@@ -181,9 +181,9 @@ Lab 1: MapReduce
 ### Computational model
 
  - aimed at document processing
-   + split doc `-> k1, list<v1>`
-   + run `Map(k1, list<v1>)` on each split `-> list<k2, v2>`
-   + run `Reduce(k2, list<v2>)` on each partition `-> list<v2>`
+   + split doc `-> K1 k, list<V1> values`
+   + run `Map(K1 key, list<V1> values)` on each split `-> list<K2, V2> kvps`
+   + run `Reduce(K2 key, list<V2> values)` on each partition `-> list<V2>`
    + merge result
  - write a map function and reduce function
    + framework takes care of parallelism, distribution, and fault tolerance

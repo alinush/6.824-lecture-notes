@@ -282,9 +282,9 @@ in the last month of the course
 <ul>
 <li>aimed at document processing
 <ul>
-<li>split doc <code>-&gt; k1, list&lt;v1&gt;</code></li>
-<li>run <code>Map(k1, list&lt;v1&gt;)</code> on each split <code>-&gt; list&lt;k2, v2&gt;</code></li>
-<li>run <code>Reduce(k2, list&lt;v2&gt;)</code> on each partition <code>-&gt; list&lt;v2&gt;</code></li>
+<li>split doc <code>-&gt; K1 k, list&lt;V1&gt; values</code></li>
+<li>run <code>Map(K1 key, list&lt;V1&gt; values)</code> on each split <code>-&gt; list&lt;K2, V2&gt; kvps</code></li>
+<li>run <code>Reduce(K2 key, list&lt;V2&gt; values)</code> on each partition <code>-&gt; list&lt;V2&gt;</code></li>
 <li>merge result</li>
 </ul></li>
 <li>write a map function and reduce function

@@ -1,4 +1,50 @@
-**TODO:** Harp, understand how primary forwards ops to backups and/or witnesses. What happens when some of them fail, etc.
+MapReduce
+---------
+
+Computation model, remember:
+
+ - input file is split `M` ways, 
+ - each split is sent to a `Map`,
+ - each `Map()` returns a list of key-value pairs
+   - map1 outputs {(k1, v1), (k2, v2)}
+   - map2 outputs {(k1, v3), (k3, v4)}
+ - key value pairs from `Map` calls are merged
+ - reduce is called on each key and its values
+   - reduce1 input is {(k1, {v1,v3})}
+   - reduce2 input is {(k2, {v2})}
+   - reduce3 input is {(k3, {v4})}
+ - can you have a reduce job start before all maps are finished?
+   - seems like it (see [here](https://ercoppa.github.io/HadoopInternals/AnatomyMapReduceJob.html))
+   - actually seems like not (see [here](https://stackoverflow.com/questions/11672676/when-do-reduce-tasks-start-in-hadoop)
+   - the reduce for key `k` can work on an iterator for 
+     the list of values associated with `k`
+     + instead of receiving the full list
+   - as more map calls finish the iterator will have more 
+     values to return for that key
+
+RPCs
+----
+
+ - _at least once:_ send RPC req., wait for reply, retry if no reply
+   + RPC calls are repeated `=>` needs side-effect free RPCs to work correctly
+   + ordering can be messed up: `send(req1); send(req2); ack(req2); Nack(req1);
+     resend(req1); ack(req1)`
+     - `req1` was sent before `req2` but was executed after `req2`
+ - _at most once:_ send RPC req. with XID, server executes RPC, remembers it by
+   its XID, never executes it again if it receives it again (just replies with 
+   remembered result)
+   + no retries
+   + discarding XIDs at the server side can be tricky
+ - _exactly once:_ at most once, + retries, + fault tolerance (to ensure no
+   corruption and hence _exactly once_ semantics)
+
+Primary-backup replication
+--------------------------
+
+When is view allowed to change?
+
+**TODO:** Harp, understand how primary forwards ops to backups and/or witnesses.
+what happens when some of them fail, etc.
 
 **TODO:** Flat data center storage. Blob ID + tract # are mapped to a tract entry. In FDS there are `O(n^2)` tract entries. 3 servers per entry. All possible combinations. Why?
 
@@ -24,8 +70,6 @@
    + How is a replacement picked? (Randomly apparently) 
    + Is the replacement server moved from its old TLT entry to the new one, or is it also left in the old TLT entry as well?
      - Figure 2 from paper suggests it is left in the old TLT entry
-
-**TODO:** Primary backup replication, remind yourself when view is allowed to change.
 
 **TODO:** Paxos, try to understand why np/na are needed and what happened if one of them was not used.
 
@@ -64,19 +108,6 @@ are also made visible?
  - Q1 2009, Question 11 seems to suggest yes.
 
 **TODO:** Vector timestamps and causal consistency
-
-**TODO:** Map reduce computation model, remember:
-
- - input file is split M ways, 
- - each split is sent to a `Map`,
- - each `Map()` returns a list of key-value pairs
-   - map1 outputs {(k1, v1), (k2, v2)}
-   - map2 outputs {(k1, v3), (k3, v4)}
- - key value pairs from `Map` calls are merged
- - reduce is called on each key and its values
-   - reduce1 input is {(k1, {v1,v3})}
-   - reduce2 input is {(k2, {v2})}
-   - reduce3 input is {(k3, {v4})}
 
 
 **TODO:** Sequential consistency is going to be on the exam!

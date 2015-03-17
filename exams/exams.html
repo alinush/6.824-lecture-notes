@@ -1,4 +1,65 @@
-<p><strong>TODO:</strong> Harp, understand how primary forwards ops to backups and/or witnesses. What happens when some of them fail, etc.</p>
+<h2>MapReduce</h2>
+
+<p>Computation model, remember:</p>
+
+<ul>
+<li>input file is split <code>M</code> ways, </li>
+<li>each split is sent to a <code>Map</code>,</li>
+<li>each <code>Map()</code> returns a list of key-value pairs
+<ul>
+<li>map1 outputs {(k1, v1), (k2, v2)}</li>
+<li>map2 outputs {(k1, v3), (k3, v4)}</li>
+</ul></li>
+<li>key value pairs from <code>Map</code> calls are merged</li>
+<li>reduce is called on each key and its values
+<ul>
+<li>reduce1 input is {(k1, {v1,v3})}</li>
+<li>reduce2 input is {(k2, {v2})}</li>
+<li>reduce3 input is {(k3, {v4})}</li>
+</ul></li>
+<li>can you have a reduce job start before all maps are finished?
+<ul>
+<li>seems like it (see <a href="https://ercoppa.github.io/HadoopInternals/AnatomyMapReduceJob.html">here</a>)</li>
+<li>actually seems like not (see <a href="https://stackoverflow.com/questions/11672676/when-do-reduce-tasks-start-in-hadoop">here</a></li>
+<li>the reduce for key <code>k</code> can work on an iterator for 
+the list of values associated with <code>k</code>
+<ul>
+<li>instead of receiving the full list</li>
+</ul></li>
+<li>as more map calls finish the iterator will have more 
+values to return for that key</li>
+</ul></li>
+</ul>
+
+<h2>RPCs</h2>
+
+<ul>
+<li><em>at least once:</em> send RPC req., wait for reply, retry if no reply
+<ul>
+<li>RPC calls are repeated <code>=&gt;</code> needs side-effect free RPCs to work correctly</li>
+<li>ordering can be messed up: <code>send(req1); send(req2); ack(req2); Nack(req1);
+resend(req1); ack(req1)</code>
+<ul>
+<li><code>req1</code> was sent before <code>req2</code> but was executed after <code>req2</code></li>
+</ul></li>
+</ul></li>
+<li><em>at most once:</em> send RPC req. with XID, server executes RPC, remembers it by
+its XID, never executes it again if it receives it again (just replies with 
+remembered result)
+<ul>
+<li>no retries</li>
+<li>discarding XIDs at the server side can be tricky</li>
+</ul></li>
+<li><em>exactly once:</em> at most once, + retries, + fault tolerance (to ensure no
+corruption and hence <em>exactly once</em> semantics)</li>
+</ul>
+
+<h2>Primary-backup replication</h2>
+
+<p>When is view allowed to change?</p>
+
+<p><strong>TODO:</strong> Harp, understand how primary forwards ops to backups and/or witnesses.
+what happens when some of them fail, etc.</p>
 
 <p><strong>TODO:</strong> Flat data center storage. Blob ID + tract # are mapped to a tract entry. In FDS there are <code>O(n^2)</code> tract entries. 3 servers per entry. All possible combinations. Why?</p>
 
@@ -46,8 +107,6 @@ k-2 randomly picked servers to each entry's pair</li>
 </ul></li>
 </ul>
 
-<p><strong>TODO:</strong> Primary backup replication, remind yourself when view is allowed to change.</p>
-
 <p><strong>TODO:</strong> Paxos, try to understand why np/na are needed and what happened if one of them was not used.</p>
 
 <p><strong>TODO:</strong> Raft, all of it.</p>
@@ -91,25 +150,6 @@ are also made visible?</p>
 </ul>
 
 <p><strong>TODO:</strong> Vector timestamps and causal consistency</p>
-
-<p><strong>TODO:</strong> Map reduce computation model, remember:</p>
-
-<ul>
-<li>input file is split M ways, </li>
-<li>each split is sent to a <code>Map</code>,</li>
-<li>each <code>Map()</code> returns a list of key-value pairs
-<ul>
-<li>map1 outputs {(k1, v1), (k2, v2)}</li>
-<li>map2 outputs {(k1, v3), (k3, v4)}</li>
-</ul></li>
-<li>key value pairs from <code>Map</code> calls are merged</li>
-<li>reduce is called on each key and its values
-<ul>
-<li>reduce1 input is {(k1, {v1,v3})}</li>
-<li>reduce2 input is {(k2, {v2})}</li>
-<li>reduce3 input is {(k3, {v4})}</li>
-</ul></li>
-</ul>
 
 <p><strong>TODO:</strong> Sequential consistency is going to be on the exam!</p>
 
