@@ -66,6 +66,7 @@ are also made visible?
 **TODO:** Vector timestamps and causal consistency
 
 **TODO:** Map reduce computation model, remember:
+
  - input file is split M ways, 
  - each split is sent to a `Map`,
  - each `Map()` returns a list of key-value pairs

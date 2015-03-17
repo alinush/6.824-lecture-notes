@@ -92,17 +92,24 @@ are also made visible?</p>
 
 <p><strong>TODO:</strong> Vector timestamps and causal consistency</p>
 
-<p><strong>TODO:</strong> Map reduce computation model, remember:
- - input file is split M ways, 
- - each split is sent to a <code>Map</code>,
- - each <code>Map()</code> returns a list of key-value pairs
-   - map1 outputs {(k1, v1), (k2, v2)}
-   - map2 outputs {(k1, v3), (k3, v4)}
- - key value pairs from <code>Map</code> calls are merged
- - reduce is called on each key and its values
-   - reduce1 input is {(k1, {v1,v3})}
-   - reduce2 input is {(k2, {v2})}
-   - reduce3 input is {(k3, {v4})}</p>
+<p><strong>TODO:</strong> Map reduce computation model, remember:</p>
+
+<ul>
+<li>input file is split M ways, </li>
+<li>each split is sent to a <code>Map</code>,</li>
+<li>each <code>Map()</code> returns a list of key-value pairs
+<ul>
+<li>map1 outputs {(k1, v1), (k2, v2)}</li>
+<li>map2 outputs {(k1, v3), (k3, v4)}</li>
+</ul></li>
+<li>key value pairs from <code>Map</code> calls are merged</li>
+<li>reduce is called on each key and its values
+<ul>
+<li>reduce1 input is {(k1, {v1,v3})}</li>
+<li>reduce2 input is {(k2, {v2})}</li>
+<li>reduce3 input is {(k3, {v4})}</li>
+</ul></li>
+</ul>
 
 <p><strong>TODO:</strong> Sequential consistency is going to be on the exam!</p>
 
