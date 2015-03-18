@@ -163,7 +163,9 @@ no other different value can be re-chosen. Why?
  - thus, the proposer can only propose the chosen value
 
 
-**TODO:** Raft, all of it.
+Raft
+----
+
 
 Go's memory model
 -----------------
@@ -189,18 +191,26 @@ observes the value written by the most recent write w to v. When multiple gorout
 shared variable v, they must use synchronization events to establish happens-before conditions
 that ensure reads observe the desired writes.
 
+Harp
+-----
+
+TreadMarks
+----------
+
 **TODO:** Write amplification vs. false sharing
 
 **TODO:** TreadMarks: lazy release consistency (different than ERC) + causal consistency
 
-**TODO:** Causal consistency: Does it ensure previous writes that did NOT contribute to current write
-B
-are also made visible?
+**TODO:** Causal consistency: Does it ensure previous writes that did NOT 
+contribute to current write are also made visible?
  
  - Q1 2009, Question 11 seems to suggest yes.
 
 **TODO:** Vector timestamps and causal consistency
 
 **TODO:** Sequential consistency is going to be on the exam!
+
+Ficus
+-----
 
 **TODO:** The AnalogicFS paper, read it very carefully and understand it fully; it will definitely show up on the final.

@@ -328,7 +328,7 @@ not waste storage.</li>
 
 <p><strong>Q:</strong> How long will adding a tractserver take?</p>
 
-<p><strong>Q:</strong> What about client writes while tracts are being transferred?</p>
+<p><strong>Q:</strong> What about client <code>write</code>'s while tracts are being transferred?</p>
 
 <ul>
 <li>receiving tractserver may have copies from client(s) and from old srvr</li>
@@ -336,6 +336,10 @@ not waste storage.</li>
 </ul>
 
 <p><strong>Q:</strong> What if a client reads/writes but has an old tract table?</p>
+
+<ul>
+<li>tractservers tell him</li>
+</ul>
 
 <h4>Replication</h4>
 
@@ -345,6 +349,12 @@ not waste storage.</li>
 </ul>
 
 <p><strong>Q:</strong> Why don't they send writes through a primary?</p>
+
+<ul>
+<li>puts a lot of work on a primary? has to lookup and know TLT</li>
+<li>goal is not to have just one backup for a primary, it's to replicate and
+strip data effectively across many disks</li>
+</ul>
 
 <p><strong>Q:</strong> What problems are they likely to have because of lack of primary?</p>
 
@@ -371,6 +381,10 @@ not waste storage.</li>
 
 <p><strong>Q:</strong> Why not just pick one replacement server?</p>
 
+<ul>
+<li>it will have to take in a lot of writes for the lost data <code>=&gt;</code> bad perf.</li>
+</ul>
+
 <p><strong>Q:</strong> How long will it take to copy all the tracts?</p>
 
 <p><strong>Q:</strong> If a tractserver's net breaks and is then repaired, might srvr serve old data?</p>
@@ -390,51 +404,138 @@ not waste storage.</li>
 
 <p><strong>Q:</strong> While metadata server is down, can the system proceed?</p>
 
+<ul>
+<li>yes, clients who have the TLT can go on</li>
+</ul>
+
 <p><strong>Q:</strong> Is there a backup metadata server?</p>
 
+<ul>
+<li>not in the paper, they said they might use Paxos for replication</li>
+<li><strong>TODO:</strong> not clear why replicating the metadata server would lead to consistency
+problems</li>
+</ul>
+
 <p><strong>Q:</strong> How does rebooted metadata server get a copy of the TLT?</p>
+
+<ul>
+<li>Eh, maybe it has it on disk?</li>
+<li>Maybe it just simply reconstructs it from all the heartbeats?</li>
+</ul>
 
 <p><strong>Q:</strong> Does their scheme seem correct?</p>
 
 <ul>
-<li>how does the metadata server know it has heard from all tractservers?</li>
-<li>how does it know all tractservers were up to date?</li>
+<li>how does the metadata server know it has heard from all tractservers?
+<ul>
+<li>it doesn't, it just adds servers as they send heartbeats</li>
+</ul></li>
+<li>how does it know all tractservers were up to date?
+<ul>
+<li><strong>TODO:</strong> Up to date with what?</li>
+</ul></li>
 </ul>
 
 <h4>Random issues</h4>
 
 <p><strong>Q:</strong> Is the metadata server likely to be a bottleneck?</p>
 
+<ul>
+<li>hard to tell. what's the use case?</li>
+<li>if you have a client w/ that has memory to remember TLT 
+then he only contacts metadata server once and then
+starts doing all of his reads/writes</li>
+<li>if you have a lot of clients joining the system, or coming back but
+forgetting the TLT (because of lack of storage maybe), then the metadata
+server would be in use heavily
+<ul>
+<li>however, this won't affect the bandwidth the clients get once they
+downloaded the TLT</li>
+</ul></li>
+</ul>
+
 <p><strong>Q:</strong> Why do they need the scrubber application mentioned in 2.3?</p>
 
 <ul>
-<li>why don't they delete the tracts when the blob is deleted?</li>
-<li>can a blob be written after it is deleted?</li>
+<li>why don't they delete the tracts when the blob is deleted?
+<ul>
+<li>faster to do GC, rather than scheduling &amp; executing deletes?</li>
+</ul></li>
+<li>can a blob be written after it is deleted?
+<ul>
+<li><strong>TODO:</strong> not sure, seems like yes, because the metadata for that
+blob is in tract -1 and I don't think <code>WriteTract</code> checks the metadata
+before every write, so you could maybe have races</li>
+</ul></li>
 </ul>
 
 <h4>Performance</h4>
 
-<p><strong>Q:</strong> How do we know we're seeing "good" performance?</p>
+<p><strong>Q:</strong> How do we know we're seeing "good" performance? What's the best you can expect?</p>
 
 <ul>
-<li>what's the best you can expect?</li>
+<li>best you can expect is to take each disks bandwidth and have the system's
+bandwidth be <code># of disk * disk bandwidth</code></li>
 </ul>
 
-<p><strong>Q:</strong> Limiting resource for 2 GB / second single-client?</p>
-
-<p><strong>Q:</strong> Figure 4a: Why starts low? Why goes up? Why levels off?</p>
+<p><strong>Q:</strong> Limiting resource for 2 GBps single-client?</p>
 
 <ul>
-<li>why does it level off at that particular performance?</li>
+<li>assuming this is end of 5.2</li>
+<li>30 tractservers means maximum of 30 * 130MB/s = 3.9GBps</li>
+<li>so limiting resource is network bandwidth</li>
 </ul>
 
-<p><strong>Q:</strong> Figure 4b shows random r/w as fast as sequential (Figure 4a).</p>
+<p><strong>Q:</strong> Figure 4a: Why starts low? Why goes up? Why levels off? Why does it level off at that particular performance?</p>
 
 <ul>
-<li>is this what you'd expect?</li>
+<li>starts low because single client bandwidth is limited</li>
+<li>goes up b.c. as # of clients is increased each one adds more bandwidth to 
+the system</li>
+<li>levels off because at some point the client bandwidth > server's bandwidth</li>
+<li>why levels off at 32 GBps for <code>x</code> clients w/ 516 disks?
+<ul>
+<li>Figure 3 suggests a 10,000 RPM disk can read 5MB chunks at around 130MB/s
+<ul>
+<li>writes are similar</li>
+</ul></li>
+<li>not clear from logarithmic scale graph what <code>x</code> is
+<ul>
+<li><code>10 &lt; x &lt; 50</code> (maybe <code>25 &lt; x &lt; 50</code>?)</li>
+</ul></li>
+<li><code>516 disks * 130MB/s = 67 GBps</code>, so seems like best case performance
+should've leveled off at more than 32 GBps?
+<ul>
+<li>in reality not all disks are 130MB/s maybe? (only the 10,000rpm SAS onese
+were that fast)</li>
+<li>in reality multiple disks on a single node might make that number smaller
+maybe?</li>
+</ul></li>
+<li>anyway, something like <code>x=40</code> clients would have <code>40 * 10Gbps = 40 * 1.25GBps
+= 50 Gbps</code> which is higher than the actual (claimed) bandwidth of the server
+of 32 GBps</li>
+</ul></li>
+</ul>
+
+<p><strong>Q:</strong> Figure 4b shows random r/w as fast as sequential (Figure 4a). Is this what you'd expect?</p>
+
+<ul>
+<li>Yes. Random R/W requests for different tracts go to different servers, just 
+like sequential ones do <code>=</code>> no difference</li>
 </ul>
 
 <p><strong>Q:</strong> Why are writes slower than reads with replication in Figure 4c?</p>
+
+<ul>
+<li>A write is sent to all tract servers? Not over until all of them reply.
+<ul>
+<li>w/ higher number of clients writing <code>=&gt;</code> more work done by each server</li>
+<li>Paper says: "As expected, the write bandwidth is about onethird
+of the read bandwidth since clients must send three
+copies of each write"</li>
+</ul></li>
+<li>A read is sent to just one?</li>
+</ul>
 
 <p><strong>Q:</strong> Where does the 92 GB in 6.2 seconds come from?</p>
 

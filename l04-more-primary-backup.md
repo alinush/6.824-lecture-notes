@@ -250,12 +250,14 @@ Unclear.
 
 **Q:** How long will adding a tractserver take?
 
-**Q:** What about client writes while tracts are being transferred?
+**Q:** What about client `write`'s while tracts are being transferred?
 
  - receiving tractserver may have copies from client(s) and from old srvr
  - how does it know which is newest?
 
 **Q:** What if a client reads/writes but has an old tract table?
+
+ - tractservers tell him
   
 #### Replication
 
@@ -263,6 +265,10 @@ Unclear.
  - A reading client asks one tractserver.
 
 **Q:** Why don't they send writes through a primary?
+
+ - puts a lot of work on a primary? has to lookup and know TLT
+ - goal is not to have just one backup for a primary, it's to replicate and
+   strip data effectively across many disks
 
 **Q:** What problems are they likely to have because of lack of primary?
 
@@ -284,6 +290,8 @@ Example of the tracts each server holds:
 
 **Q:** Why not just pick one replacement server?
 
+ - it will have to take in a lot of writes for the lost data `=>` bad perf.
+
 **Q:** How long will it take to copy all the tracts?
 
 **Q:** If a tractserver's net breaks and is then repaired, might srvr serve old data?
@@ -300,42 +308,100 @@ Example of the tracts each server holds:
 #### What happens when the metadata server crashes?
 
 **Q:** While metadata server is down, can the system proceed?
+ 
+ + yes, clients who have the TLT can go on
 
 **Q:** Is there a backup metadata server?
+ 
+ + not in the paper, they said they might use Paxos for replication
+ + **TODO:** not clear why replicating the metadata server would lead to consistency
+   problems
 
 **Q:** How does rebooted metadata server get a copy of the TLT?
+ 
+ + Eh, maybe it has it on disk?
+ + Maybe it just simply reconstructs it from all the heartbeats?
 
 **Q:** Does their scheme seem correct?
 
  - how does the metadata server know it has heard from all tractservers?
+   + it doesn't, it just adds servers as they send heartbeats
  - how does it know all tractservers were up to date?
+   + **TODO:** Up to date with what?
 
 #### Random issues
 
 **Q:** Is the metadata server likely to be a bottleneck?
 
+ - hard to tell. what's the use case?
+ - if you have a client w/ that has memory to remember TLT 
+   then he only contacts metadata server once and then
+   starts doing all of his reads/writes
+ - if you have a lot of clients joining the system, or coming back but
+   forgetting the TLT (because of lack of storage maybe), then the metadata
+   server would be in use heavily
+   + however, this won't affect the bandwidth the clients get once they
+     downloaded the TLT
+
 **Q:** Why do they need the scrubber application mentioned in 2.3?
  
  - why don't they delete the tracts when the blob is deleted?
+   + faster to do GC, rather than scheduling & executing deletes?
  - can a blob be written after it is deleted?
+   + **TODO:** not sure, seems like yes, because the metadata for that
+     blob is in tract -1 and I don't think `WriteTract` checks the metadata
+     before every write, so you could maybe have races
 
 #### Performance
 
-**Q:** How do we know we're seeing "good" performance?
+**Q:** How do we know we're seeing "good" performance? What's the best you can expect?
 
- - what's the best you can expect?
+ - best you can expect is to take each disks bandwidth and have the system's
+   bandwidth be `# of disk * disk bandwidth`
 
-**Q:** Limiting resource for 2 GB / second single-client?
+**Q:** Limiting resource for 2 GBps single-client?
 
-**Q:** Figure 4a: Why starts low? Why goes up? Why levels off?
+ - assuming this is end of 5.2
+ - 30 tractservers means maximum of 30 * 130MB/s = 3.9GBps
+ - so limiting resource is network bandwidth
 
- - why does it level off at that particular performance?
 
-**Q:** Figure 4b shows random r/w as fast as sequential (Figure 4a).
+**Q:** Figure 4a: Why starts low? Why goes up? Why levels off? Why does it level off at that particular performance?
 
- - is this what you'd expect?
+ - starts low because single client bandwidth is limited
+ - goes up b.c. as # of clients is increased each one adds more bandwidth to 
+   the system
+ - levels off because at some point the client bandwidth > server's bandwidth
+ - why levels off at 32 GBps for `x` clients w/ 516 disks?
+   + Figure 3 suggests a 10,000 RPM disk can read 5MB chunks at around 130MB/s
+     - writes are similar
+   + not clear from logarithmic scale graph what `x` is
+     - `10 < x < 50` (maybe `25 < x < 50`?)
+   + `516 disks * 130MB/s = 67 GBps`, so seems like best case performance
+      should've leveled off at more than 32 GBps?
+     - in reality not all disks are 130MB/s maybe? (only the 10,000rpm SAS onese
+       were that fast)
+     - in reality multiple disks on a single node might make that number smaller
+       maybe?
+    + anyway, something like `x=40` clients would have `40 * 10Gbps = 40 * 1.25GBps
+      = 50 Gbps` which is higher than the actual (claimed) bandwidth of the server
+      of 32 GBps
+   
+
+
+**Q:** Figure 4b shows random r/w as fast as sequential (Figure 4a). Is this what you'd expect?
+
+ - Yes. Random R/W requests for different tracts go to different servers, just 
+   like sequential ones do `=`> no difference
 
 **Q:** Why are writes slower than reads with replication in Figure 4c?
+ 
+ - A write is sent to all tract servers? Not over until all of them reply.
+   + w/ higher number of clients writing `=>` more work done by each server
+   + Paper says: "As expected, the write bandwidth is about onethird
+     of the read bandwidth since clients must send three
+     copies of each write"
+ - A read is sent to just one?
 
 **Q:** Where does the 92 GB in 6.2 seconds come from?
 
