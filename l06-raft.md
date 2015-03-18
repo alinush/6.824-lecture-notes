@@ -204,7 +204,7 @@ Roll-back is a big hammer -- forces leader's log on everyone
      + `AppendEntries` says previous entry must have term 5
    + S2 replies false (`AppendEntries` step 2)
    + S3 decrements `nextIndex[S2]`
-   + S3 sends `AppendEntries` for the term=5 op, saying prev has term=3
+   + S3 sends `AppendEntries` for the op w/ term=5, saying prev has term=3
    + S2 deletes op from term 4 (`AppendEntries` step 3) and replaces with op for term 5 from S3
      (and S1 rejects b/c it doesn't have anything in that entry)
      + S2 sets op for term 6 as well
@@ -278,8 +278,8 @@ The most subtle thing about Raft (figure 8)
 Figure 8:
 
     S1 1, L 2,    ,      L 4,
-    S2 1,   2,    ,      \A/
-    S3 1,    ,    , 2   <-| ,
+    S2 1,   2,    ,      \A/,
+    S3 1,   <-------- 2 <-| ,
     S4 1,    ,    ,         ,
     S5 1,    , L 3,         , L will erase all 2's
 
@@ -288,7 +288,7 @@ Figure 8:
  - Figure 8:
    + S1 was leader in term 2, sends out two copies of 2
    + S5 leader in term 3
-   + S1 in term 4, sends one more copy of 2 (b/c S3 rejected op 4)
+   + S1 leader in term 4, sends one more copy of 2 (b/c S3 rejected op 4)
    + what if S5 now becomes leader?
      - S5 can get a majority (w/o S1)
      - S5 will roll back 2 and replace it with 3

@@ -286,7 +286,7 @@ S3: 3 3                (new leader) 5
 </ul></li>
 <li>S2 replies false (<code>AppendEntries</code> step 2)</li>
 <li>S3 decrements <code>nextIndex[S2]</code></li>
-<li>S3 sends <code>AppendEntries</code> for the term=5 op, saying prev has term=3</li>
+<li>S3 sends <code>AppendEntries</code> for the op w/ term=5, saying prev has term=3</li>
 <li>S2 deletes op from term 4 (<code>AppendEntries</code> step 3) and replaces with op for term 5 from S3
 (and S1 rejects b/c it doesn't have anything in that entry)
 <ul>
@@ -393,8 +393,8 @@ entries in its log</li>
 <p>Figure 8:</p>
 
 <pre><code>S1 1, L 2,    ,      L 4,
-S2 1,   2,    ,      \A/
-S3 1,    ,    , 2   &lt;-| ,
+S2 1,   2,    ,      \A/,
+S3 1,   &lt;-------- 2 &lt;-| ,
 S4 1,    ,    ,         ,
 S5 1,    , L 3,         , L will erase all 2's
 </code></pre>
@@ -408,7 +408,7 @@ S5 1,    , L 3,         , L will erase all 2's
 <ul>
 <li>S1 was leader in term 2, sends out two copies of 2</li>
 <li>S5 leader in term 3</li>
-<li>S1 in term 4, sends one more copy of 2 (b/c S3 rejected op 4)</li>
+<li>S1 leader in term 4, sends one more copy of 2 (b/c S3 rejected op 4)</li>
 <li>what if S5 now becomes leader?
 <ul>
 <li>S5 can get a majority (w/o S1)</li>

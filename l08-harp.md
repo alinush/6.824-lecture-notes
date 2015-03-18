@@ -78,11 +78,11 @@ Paper: [Replication in the Harp File System](papers/bliskov-harp.pdf)
 
  - (This is review...)
  - Suppose we have `N` servers, and execute a write.
- - Can't wait for more than N-b, since b might be dead.
- - So let's require waiting for N-b for each operation.
- - The b we didn't wait for might be live and in another partition.
- - We can prevent them from proceeding if `b < N-b`.
- - I.e. `2b < N; N = 2b + 1` is enough.
+ - Can't wait for more than `N-b`, since `b` might be dead.
+ - So let's require waiting for `N-b` for each operation.
+ - The `b` we didn't wait for might be live and in another partition.
+ - We can prevent them from proceeding if `N-b > b`.
+ - I.e. `N > 2b => N = 2b + 1` is enough.
 
 #### What are Harp's witnesses?
 
@@ -94,11 +94,12 @@ Paper: [Replication in the Harp File System](papers/bliskov-harp.pdf)
      side operations
    + witness acts as a tie breaker: whoever can talk to it wins and gets to
      act as a primary
- - a second use of the witness is to record operations, once say it's part of
-   the partition `B, W` so that a majority of nodes have the latest operations
+ - a second use of the witness is to record operations
+ - once a witness is part of the partition `B, W`, it records operations so 
+   that a majority of nodes have the latest operations
  - a final function of the witness is that when the primary comes back to life,
    the witness has been logging every single operation issued since primary
-   disappeared, so witness can reply every op to primary and will be up to
+   disappeared, so witness can replay every op to primary and primary will be up to
    date w.r.t. all the operations executed
    + efficiently bring primary up to speed
    + the backup could do that too, but Harp is designed so that
@@ -131,7 +132,7 @@ Paper: [Replication in the Harp File System](papers/bliskov-harp.pdf)
    + Those witnesses must record the op, to ensure overlap with any
      - future majority.
    + Thus each "promoted" witness keeps a log.
- - So in a 2b+1 system, a view always has b+1 servers that the primary
+ - So in a `2b+1` system, a view always has `b+1` servers that the primary
    must contact for each op, and that store each op.
 
 Note: somewhat different from Raft
@@ -335,16 +336,25 @@ Scenario:
 
       S1+S2+S3; then S1 crashes
       S2 is primary in new view (and S4 is promoted)
-      Will S2 have every committed operation?
-      Will S2 have every operation S1 received?
-      Will S2's log tail be the same as S3's log tail?
-      How far back can S2 and S3 log tail differ?
-      How to cause S2 and S3's log to be the same?
-        Must commit ops that appeared in both S2+S3 logs
-        What about ops that appear in only one log?
-          In this scenario, can discard since could not have committed
-          But in general committed op might be visible in just one log
-      From what point does promoted witness have to start keeping a log?
+
+ - Will S2 have every committed operation?
+   + Yes.
+ - Will S2 have every operation S1 received?
+   + No. No, maybe op didn't reach S2 from S1 and then S1 crashed.
+ - Will S2's log tail be the same as S3's log tail?
+   + Not necessarily. 
+     - Maybe op reached S2 but not S3 and then S1 crashed.
+     - Maybe op reached S2, and S3 crashed, so S4 was promoted. Then S3
+       came back up?
+ - How far back can S2 and S3 log tail differ?
+   + Not up to the CP, because committed ops could be committed w/ help
+     of promoted witness `=>` backup logs differ
+ - How to cause S2 and S3's log to be the same?
+   + Must commit ops that appeared in both S2+S3 logs
+   + What about ops that appear in only one log?
+     - In this scenario, can discard since could not have committed
+     - But in general committed op might be visible in just one log
+ - From what point does promoted witness have to start keeping a log?
 
 #### What if S1 crashed just before replying to a client?
 

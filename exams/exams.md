@@ -102,9 +102,6 @@ Remus
  - backup tells primary it's done copying
  - primary resumes and replies to client 
 
-**TODO:** Harp, understand how primary forwards ops to backups and/or witnesses.
-what happens when some of them fail, etc.
-
 Flat data center storage
 ------------------------
 
@@ -166,6 +163,27 @@ no other different value can be re-chosen. Why?
 Raft
 ----
 
+See [specification here](raft.png)
+
+ - Agree on leader (majority needs to vote for leader)
+ - Leader tells everyone what the log entries are
+ - `=>` no dueling proposers
+
+A log is an array that maps an index to a command + term. First index is 1.
+Indices increase by one.
+
+commitIndex versus lastApplied? lastApplied keeps track of up to what point
+committed log entries have been applied to the FSM. When commitIndex exceeds
+lastApplied, it's time to apply some entries.
+
+AppendEntries is only called by leader? Only leader sends heartbeats? Yes. Yes.
+
+How do these guys keep synchronized clocks?
+
+**Most subtle Raft concept:** If a log entry is replicated on a majority of
+servers, that **does NOT** mean it's committed. Only if "S replicates an entry 
+from _its current term_ on a majority of the servers, then that entry and all
+entries before it are committed"
 
 Go's memory model
 -----------------
@@ -194,6 +212,45 @@ that ensure reads observe the desired writes.
 Harp
 -----
 
+ - `2n+1` servers, `1` primary, `n` backups, `n` witnesses
+   + need a majority of `n+1` servers `=>`
+   + tolerate up to `n` failures (see [notes](../l08-harp.html) for why `2n+1`
+     is required)
+
+Operation:
+
+ - primary gets NFS request
+ - primary forwards each request to all `n` backups
+ - after all backups reply, primary can execute op and apply to FS
+ - in a later request, primary piggybacks an ACK to tell backups the op committed
+ - **Note:** witnesses do not ordinarily hear about ops or store state
+   + `b` failures out of `b+1` machines which do keep state `=>` still have `1`
+     machine w/ state
+
+Why have witnesses?
+
+ - Remember: need `2n+1` machines to break partitions
+   + What machines do we use to break those partitions? The witnesses!
+ - If `m` backups are down, primary talks to `m` promoted witnesses to get a 
+   majority for each op (as it would with `n` live backups)
+ - the witnesses record the ops in a log when they are promoted
+
+What happens on crash of a backup?
+
+ - If a backup crashes after it writes an op to disk, but before replying to
+   primary `=>` no way to (easily) tell if backup executed the op when it
+   comes back up
+   + This implies we need the ops in the log entries to be _side-effect free_
+     so we can reapply them
+
+On a primary crash, when primary comes back up, witnesses are used to replay ops
+to it and bring it up to speed.
+
+If all backups crash, then can promote all witnesses and continue
+
+**TODO:** Harp, understand how primary forwards ops to backups and/or witnesses.
+what happens when some of them fail, etc.
+
 TreadMarks
 ----------
 
@@ -212,5 +269,8 @@ contribute to current write are also made visible?
 
 Ficus
 -----
+
+AnalogicFS
+----------
 
 **TODO:** The AnalogicFS paper, read it very carefully and understand it fully; it will definitely show up on the final.

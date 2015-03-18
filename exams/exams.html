@@ -152,9 +152,6 @@ progress (or will break consistency)</li>
 <li>primary resumes and replies to client </li>
 </ul>
 
-<p><strong>TODO:</strong> Harp, understand how primary forwards ops to backups and/or witnesses.
-what happens when some of them fail, etc.</p>
-
 <h2>Flat data center storage</h2>
 
 <p>Blob ID + tract # are mapped to a tract entry. In FDS, there are <code>O(n^2)</code> tract entries. 3 servers per entry. All possible combinations. Why?</p>
@@ -240,6 +237,30 @@ pair with the chosen value</li>
 
 <h2>Raft</h2>
 
+<p>See <a href="raft.png">specification here</a></p>
+
+<ul>
+<li>Agree on leader (majority needs to vote for leader)</li>
+<li>Leader tells everyone what the log entries are</li>
+<li><code>=&gt;</code> no dueling proposers</li>
+</ul>
+
+<p>A log is an array that maps an index to a command + term. First index is 1.
+Indices increase by one.</p>
+
+<p>commitIndex versus lastApplied? lastApplied keeps track of up to what point
+committed log entries have been applied to the FSM. When commitIndex exceeds
+lastApplied, it's time to apply some entries.</p>
+
+<p>AppendEntries is only called by leader? Only leader sends heartbeats? Yes. Yes.</p>
+
+<p>How do these guys keep synchronized clocks?</p>
+
+<p><strong>Most subtle Raft concept:</strong> If a log entry is replicated on a majority of
+servers, that <strong>does NOT</strong> mean it's committed. Only if "S replicates an entry 
+from <em>its current term</em> on a majority of the servers, then that entry and all
+entries before it are committed"</p>
+
 <h2>Go's memory model</h2>
 
 <p>The actual Go memory model is as follows:
@@ -269,6 +290,61 @@ that ensure reads observe the desired writes.</p>
 
 <h2>Harp</h2>
 
+<ul>
+<li><code>2n+1</code> servers, <code>1</code> primary, <code>n</code> backups, <code>n</code> witnesses
+<ul>
+<li>need a majority of <code>n+1</code> servers <code>=&gt;</code></li>
+<li>tolerate up to <code>n</code> failures (see <a href="../l08-harp.html">notes</a> for why <code>2n+1</code>
+is required)</li>
+</ul></li>
+</ul>
+
+<p>Operation:</p>
+
+<ul>
+<li>primary gets NFS request</li>
+<li>primary forwards each request to all <code>n</code> backups</li>
+<li>after all backups reply, primary can execute op and apply to FS</li>
+<li>in a later request, primary piggybacks an ACK to tell backups the op committed</li>
+<li><strong>Note:</strong> witnesses do not ordinarily hear about ops or store state
+<ul>
+<li><code>b</code> failures out of <code>b+1</code> machines which do keep state <code>=&gt;</code> still have <code>1</code>
+machine w/ state</li>
+</ul></li>
+</ul>
+
+<p>Why have witnesses?</p>
+
+<ul>
+<li>Remember: need <code>2n+1</code> machines to break partitions
+<ul>
+<li>What machines do we use to break those partitions? The witnesses!</li>
+</ul></li>
+<li>If <code>m</code> backups are down, primary talks to <code>m</code> promoted witnesses to get a 
+majority for each op (as it would with <code>n</code> live backups)</li>
+<li>the witnesses record the ops in a log when they are promoted</li>
+</ul>
+
+<p>What happens on crash of a backup?</p>
+
+<ul>
+<li>If a backup crashes after it writes an op to disk, but before replying to
+primary <code>=&gt;</code> no way to (easily) tell if backup executed the op when it
+comes back up
+<ul>
+<li>This implies we need the ops in the log entries to be <em>side-effect free</em>
+so we can reapply them</li>
+</ul></li>
+</ul>
+
+<p>On a primary crash, when primary comes back up, witnesses are used to replay ops
+to it and bring it up to speed.</p>
+
+<p>If all backups crash, then can promote all witnesses and continue</p>
+
+<p><strong>TODO:</strong> Harp, understand how primary forwards ops to backups and/or witnesses.
+what happens when some of them fail, etc.</p>
+
 <h2>TreadMarks</h2>
 
 <p><strong>TODO:</strong> Write amplification vs. false sharing</p>
@@ -287,5 +363,7 @@ contribute to current write are also made visible?</p>
 <p><strong>TODO:</strong> Sequential consistency is going to be on the exam!</p>
 
 <h2>Ficus</h2>
+
+<h2>AnalogicFS</h2>
 
 <p><strong>TODO:</strong> The AnalogicFS paper, read it very carefully and understand it fully; it will definitely show up on the final.</p>
