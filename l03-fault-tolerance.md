@@ -345,6 +345,7 @@ Example:
            viewserver stops hearing Pings from S1
         2: S2, --
            it may be a while before S2 hears about view #2
+
         before S2 hears about view #2
           S1 can process ops from clients, S2 will accept forwarded requests
           S2 will reject ops from clients who have heard about view #2

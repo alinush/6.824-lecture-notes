@@ -173,8 +173,8 @@ Now let's switch topics to **data handling** at term boundaries
 What do we want to ensure?
 
  - each server executes the same client cmds, in the same order
-   +i.e. if any server executes, then no server executes something
-    else for that log entry
+   + i.e. if any server executes, then no server executes something
+     else for that log entry
  - as long as single leader, we've already seen it makes logs identical
    what about when leader changes?
 

@@ -56,16 +56,111 @@ corruption and hence <em>exactly once</em> semantics)</li>
 
 <h2>Primary-backup replication</h2>
 
-<p>When is view allowed to change?</p>
+<p>Strategies: </p>
+
+<ul>
+<li>state-transfer (transfer new state to backup, ala Remus)</li>
+<li>replicated state machine (transfer ops to backups, ala Lab 2/3) </li>
+</ul>
+
+<p>P/B replication</p>
+
+<ul>
+<li>Clients ask viewserver who primary is when they start up</li>
+<li>Clients find out about view changes using <code>ErrWrongServer</code> replies
+to their RPC
+<ul>
+<li>They then query view server for new view</li>
+</ul></li>
+</ul>
+
+<p>View changes:</p>
+
+<ul>
+<li>If primary is dead...
+<ul>
+<li>If there's a backup...
+<ul>
+<li>Promote backup!</li>
+</ul></li>
+<li>If there's no backup
+<ul>
+<li>Stall until primary comes back up</li>
+<li><strong>DO NOT</strong> accept an idle as a backup and then make backup primary</li>
+</ul></li>
+</ul></li>
+<li>If backup is dead...
+<ul>
+<li>If there's an idle
+<ul>
+<li>Make it a backup!</li>
+</ul></li>
+<li>If there's no idle
+<ul>
+<li>That's fine, we can work without a backup!</li>
+</ul></li>
+</ul></li>
+<li>cannot change view until primary ACKs current view
+<ul>
+<li>primary ACK tells view server that primary copied the data on the backup
+<ul>
+<li>this way the view server knows that promoting the backup to primary
+is safe and can thus change the view</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<p>Views</p>
+
+<ul>
+<li>more than two servers at a time might think they are backups</li>
+<li><code>P:S1, B:S2 and VS</code>
+<ul>
+<li><code>P:S1</code> cannot reach <code>VS</code> anymore</li>
+<li><code>VS</code> promotes <code>S2</code> to primary</li>
+<li>Thus, both think they are primaries</li>
+<li>What happens when <code>S1</code> receives a <code>Get</code> RPC from a client?
+<ul>
+<li>It still thinks it's primary!</li>
+<li><code>=&gt;</code> primary must forward <strong>all</strong> requests to backup</li>
+<li>this way primary finds out if it's not primary anymore</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<p>Problem</p>
+
+<ul>
+<li>view server fails => clients cannot make progress
+<ul>
+<li>Only if they need to contact the viewserver?</li>
+</ul></li>
+<li>primary fails before backup had a chance to get the full DB => cannot make
+progress (or will break consistency)</li>
+</ul>
+
+<h2>Remus</h2>
+
+<ul>
+<li>replicates entire machine state (RAM, disk, CPU registers, etc.)</li>
+<li>primary receives a client request, does some work</li>
+<li>primary is paused</li>
+<li>primary sends state change to backup</li>
+<li>primary <strong>waits</strong> for backup to acknowledge having received everything</li>
+<li>primary does not reply to clients until backup has received new state</li>
+<li>backup tells primary it's done copying</li>
+<li>primary resumes and replies to client </li>
+</ul>
 
 <p><strong>TODO:</strong> Harp, understand how primary forwards ops to backups and/or witnesses.
 what happens when some of them fail, etc.</p>
 
-<p><strong>TODO:</strong> Flat data center storage. Blob ID + tract # are mapped to a tract entry. In FDS there are <code>O(n^2)</code> tract entries. 3 servers per entry. All possible combinations. Why?</p>
+<h2>Flat data center storage</h2>
+
+<p>Blob ID + tract # are mapped to a tract entry. In FDS, there are <code>O(n^2)</code> tract entries. 3 servers per entry. All possible combinations. Why?</p>
 
 <ul>
-<li><p>Why <code>O(n^2)</code>? We want replication => need 2 servers per TLT entry</p>
-
+<li>Why <code>O(n^2)</code>? We want replication => need 2 servers per TLT entry
 <ul>
 <li>simple, but slow recovery: <code>n</code> entries, TLT entry <code>i</code>: server <code>i</code>, sever <code>i+1</code>
 <ul>
@@ -77,9 +172,12 @@ what happens when some of them fail, etc.</p>
 <li>better: have <code>O(n^2)</code> entries so that every pair occurs in the TLT
 <ul>
 <li>when a disk <code>i</code> fails, it occurs in <code>n-1</code> pairs 
-with other <code>n-1</code> servers
+with <code>n-1</code> other servers
 <ul>
 <li>can use this to copy data from <code>n-1</code> disks at the same time</li>
+<li>disk <code>i</code> is replaced by <strong>multiple</strong> other disk</li>
+<li>so we can read and write multiple disks at the same time while
+restoring</li>
 </ul></li>
 <li>the problem: if a 2nd disk fails at the same time, then we lose data
 <ul>
@@ -91,27 +189,58 @@ formed by these two failed disks</li>
 for every pair, if doing k-level replication (<code>k &gt; 2</code>), we add
 k-2 randomly picked servers to each entry's pair</li>
 </ul></li>
-<li><p>But how are they mapped on disk? </p>
+</ul>
+
+<p>But how are tracts mapped on disk? </p>
 
 <ul>
 <li>For now assume a dictionary/btree structure. </li>
-</ul></li>
 <li>When replacing a failed server, how is data transfer done? 
 <ul>
-<li>Is it just copied from the other servers in the TLT entry? </li>
-<li>How is a replacement picked? (Randomly apparently) </li>
-<li>Is the replacement server moved from its old TLT entry to the new one, or is it also left in the old TLT entry as well?
+<li>Is it just copied from the other servers in the TLT entry?
 <ul>
-<li>Figure 2 from paper suggests it is left in the old TLT entry</li>
+<li>Yes!</li>
+</ul></li>
+<li>How is a replacement picked? 
+<ul>
+<li>Randomly</li>
+<li>Multiple replacements are picked, for each entry where the failed disk
+appeared</li>
+</ul></li>
+<li>Is the replacement server moved from its old TLT entry to the new one, or
+is it also left in the old TLT entry as well?
+<ul>
+<li>Figure 2 from paper suggests it is left in the old TLT entry as well</li>
 </ul></li>
 </ul></li>
 </ul>
 
-<p><strong>TODO:</strong> Paxos, try to understand why np/na are needed and what happened if one of them was not used.</p>
+<h2>Paxos</h2>
+
+<p><strong>TODO:</strong> Try to understand why <code>np</code>/<code>na</code> are needed and what happened if one of
+them was not used.</p>
+
+<p>Once a value was <em>chosen</em> (<code>&lt;=&gt;</code> a majority of nodes accepted that value), then
+no other different value can be re-chosen. Why?</p>
+
+<ul>
+<li>any new proposer's <code>Prepare</code> will need a majority of <code>PREPARE_OK</code>'s to 
+move forward</li>
+<li>any majority of peers will contain at least <em>one guy</em> who has accepted the
+chosen value
+<ul>
+<li>again value was chosen <code>=&gt;</code> a majority accepted it <code>=&gt;</code> any other majority
+will contain at least one guy who accepted that value (properties of
+majority)</li>
+</ul></li>
+<li>as a result, at least one of the <code>PREPARE_OK</code> replies will include an <code>na/va</code>
+pair with the chosen value</li>
+<li>thus, the proposer can only propose the chosen value</li>
+</ul>
 
 <p><strong>TODO:</strong> Raft, all of it.</p>
 
-<p><strong>TODO:</strong> Go's memory model</p>
+<h2>Go's memory model</h2>
 
 <p>The actual Go memory model is as follows:
 A read r of a variable v is allowed to observe a write w to v if both of the following hold:</p>
@@ -143,6 +272,7 @@ that ensure reads observe the desired writes.</p>
 <p><strong>TODO:</strong> TreadMarks: lazy release consistency (different than ERC) + causal consistency</p>
 
 <p><strong>TODO:</strong> Causal consistency: Does it ensure previous writes that did NOT contribute to current write
+B
 are also made visible?</p>
 
 <ul>
