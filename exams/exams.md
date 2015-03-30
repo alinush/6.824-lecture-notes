@@ -15,7 +15,7 @@ Computation model, remember:
    - reduce3 input is {(k3, {v4})}
  - can you have a reduce job start before all maps are finished?
    - seems like it (see [here](https://ercoppa.github.io/HadoopInternals/AnatomyMapReduceJob.html))
-   - actually seems like not (see [here](https://stackoverflow.com/questions/11672676/when-do-reduce-tasks-start-in-hadoop)
+   - actually seems like not (see [here](https://stackoverflow.com/questions/11672676/when-do-reduce-tasks-start-in-hadoop))
    - the reduce for key `k` can work on an iterator for 
      the list of values associated with `k`
      + instead of receiving the full list
