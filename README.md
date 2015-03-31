@@ -18,6 +18,8 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 9: [IVY](l09-dist-comp-seq-consistency.html): distributed shared memory, sequential consistency
  * Lecture 10: [TreadMarks](l10-treadmarks.html): userspace distributed shared memory system, vector timestamps, release consistency (lazy/eager), false sharing, write amplification
  * Lecture 11: [Ficus](l11-ficus.html): optimistic concurrency control, vector timestamps, conflict resolution
+ * Lecture 12: [Bayou](l12-bayou.html): disconnected operation, eventual consistency, Bayou
+ * Lecture 13: [MapReduce](l13-mapreduce.html): MapReduce, scalability, performance
 
 Papers
 ------
