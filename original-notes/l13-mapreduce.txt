@@ -1,209 +1,172 @@
-6.824 2013 Lecture 17: MapReduce
+6.824 2015 Lecture 13: MapReduce
 
 Why MapReduce?
-  Practical solution to real problems
-    Programming/managing off-line processing of "big data"
-    Index generation, web graph analysis, machine learning, &c
-  A triumph of simplicity
-  Sparked lots of work, very influential (Hadoop &c)
-  Continuing source of much follow-on research
+  Second look for fault tolerance and performance
+  Starting point in current enthusiasm for big cluster computing
+  A triumph of simplicity for programmer
+  Bulk orientation well matched to cluster with slow network
+  Very influential, inspired many successors (Hadoop, Spark, &c)
 
 Cluster computing for Big Data
-  easy to buy/rent 1000s of computers
-  connected by a LAN
+  1000 computers + disks
+  a LAN
   split up data+computation among machines
   communicate as needed
+  similar to DSM vision but much bigger, no desire for compatibilty
 
-Physical view:
-  1000 machines, each with a disk
-  tree of network switches
-  multi-terabyte data striped over all disks
-
-Example:
-  entire crawled web partitioned over disks
-    what's a web crawler?
-    each disk holds e.g. 0.1% of all web pages
-  what are the 10 most popular words on the web?
-  each machine looks in locally stored partition
-  then they all send their top-10 lists to master machine
-  master merges
-  runs 1000x as fast as on one machine
-  simple in principle, but a lot of work from scratch
-
-Challenges:
-  Network is a bottleneck
-    RAM 1000*1 GB/sec, disk 1000*0.1 GB/sec, net cross-section 10 GB/sec
-    Explain host link b/w vs net cross-section b/w! tree of switches. FDS/CLOS.
-    Compute on locally stored data!
-    Minimize communication!
-  Expressing parallelism
-    Does programmer or compiler/system discover parallelism?
-    Must the programmer understand races, locks, &c?
-  Load balance
-    Some machines faster than others (other work, broken, &c)
-    Some parts of job take more CPU than others
-    *One* machine 2x slower -> *entire* cluster half wasted
-  Failures
-    Likely to be frequent w/ 1000s of machines
-    Paper says average of one failure per job!
-    Do better than re-start entire computation!
-
-What does the programmer really need to express?
-  At a high level the cluster does only two things:
-  1. Computation on locally stored data -- straightforward -- Map
-  2. Movement between machines -- not so clear
-
-What's a good way for the programmer to express data movement?
-  Needs to be pretty explicit, since Very Expensive
-  But somehow abstract away details!
-  Idea:
-    do as much work locally as possible -- Map
-    Map tags "intermediate" items with destination
-    move intermediate data according to tags -- really a shuffle
-    run "Reduce" phase on moved intermediate data
-  MR abstracts this:
-    Map tags each intermediate item with a key
-    All intermediate items with a given key are Reduced on same machine
-    So Map output key implies data movement
-    But programmer need not understand the details
-
-Programmer interface:
-  map(split of input) -> set of k/v pairs
-    called once per split of input
-  reduce(key, set of values) -> per-worker output file
-    called once per key, with iterator for all values for that key
-
-Diagram:
-  * input partitioned into M splits on GFS, w/ replicas: A, B, C, ...
-  * Maps read local split, produce R local intermediate files (I_A0, I_A1 .. I_AR)
-  * Reduce # = hash(key) % R
-  * Reduce task i fetches I_Ai, I_Bi, I_Ci -- from every Map worker
-  * Sort the fetched I_ files to bring same key together
-  * Call Reduce function
-  * Write output to GFS
-  * Master controls all:
-    Map task list
-    Reduce task list
-    Location of intermediate data (which Map worker run which Map task)
-
-Example: word count -- paper Section 2.1 (and Appendix)
-  split input file into big pieces
-  map(input)
-    parse into words
-    emit a series of word/1 pairs
-  ... each map worker accumulates R intermediate files ...
-  reduce(word, set)
-    set of "1"s from maps for this word
-    add them
-    output word and sum
-
-Why a nice programming model?
-  The programmer does not have to think about concurrency
-  Map and Reduce are serial functions: input -> output
-  No shared mem, threads, locks, RPC, failure handling, &c
-
-What restrictions does MapReduce impose on programmer?
-  Just the two passes
-  Map and Reduce must be pure functions -- can't share
-  Must be deterministic
-    for fault-tolerance -- re-execution
-
-Will MR scale?
-  2x machines -> 1/2 run-time, indefinitely?
-  Map calls probably scale
-    2x machines -> each Map's input 1/2 as big -> done in 1/2 the time
-    limited since input may not be infinitely partitionable
-  Reduce calls probably scale
-    2x machines -> each handles 1/2 as many keys -> done in 1/2 the time
-    limited by number of keys (if only N keys, can harness <= N machines)
-  Bottlenecks:
-    Will cross-section net b/w scale with # of machines?
-      If not, network will ultimately dominate run-time
-      If all time spent in Map->Reduce shuffle, adding more machines won't help
-    Start/barrier/stop overhead
-      i.e. if too little data or too many machines, may never fully ramp up
-    Failures may prevent or delay completion
-    Imbalanced load -- all machines idle waiting for slowest
-
-What's a not-so-scalable application?
-  Create a text index ("inverted index")
+Example: inverted index
+  e.g. index terabytes of web pages for a search engine
   Input:
     A collection of documents, e.g. crawled copy of entire web
-    doc 31: I am aaron
-    doc 32: aaron at 8:00 am
+    doc 31: i am alex
+    doc 32: alex at 8 am
   Output:
-    Aaron: 31/3 32/1 ...
+    alex: 31/3 32/1 ...
     am: 31/2 32/4 ...
-  Map:
-    read file for document i
+  Map(document file i):
     split into words
     for each offset j
       emit key=word[j] value=i/j
   Reduce(word, list of d/o)
-    emit word, list of d/o
+    emit word, sorted list of d/o
 
-Index construction is equivalent to distributed sort
-  Need to bring info about each word together
-  MR takes care of sort (shuffle, then local intermediate sort)
-  Note that index is the same size as the original input
+Diagram:
+  * input partitioned into M splits on GFS: A, B, C, ...
+  * Maps read local split, produce R local intermediate files (A0, A1 .. AR)
+  * Reduce # = hash(key) % R
+  * Reduce task i fetches Ai, Bi, Ci -- from every Map worker
+  * Sort the fetched files to bring same key together
+  * Call Reduce function on each key's values
+  * Write output to GFS
+  * Master controls all:
+    Map task list
+    Reduce task list
+    Location of intermediate data (which Map worker ran which Map task)
 
-How long will this take?
-  Suppose:
-    10 terabytes of data (10,000 GBytes)
-    network cross-section 10 GByte/sec
-    1000 machines
-    disks run at 100 MB/sec
-    fast CPUs
-  Map reads all data from disk
-    each machine reads 10 GByte
-    takes 100 seconds wall-clock time
-    intermediate output as big as input
-    so 200 seconds, including writing intermediate to disk
-  Shuffle moves all data 
-    moving 10 terabytes takes 1,000 seconds
-  Reduce just writes, about 100 seconds
-  Conclusion:
-    disk: 300 seconds ; net: 1,000 seconds
-    Bottlenecked by net
-    More machines/disks won't help
+Notice:
+  Input is huge -- terabytes
+  Info from all parts of input contributes to each output index entry
+    So terabytes must be communicated between machines
+  Output is huge -- terabytes
 
-Can we avoid the shuffle for index generation?
+The main challenge: communication bottleneck
+  Three kinds of data movement needed:
+    Read huge input
+    Move huge intermediate data
+    Store huge output
+  How fast can one move data?
+    RAM: 1000*1 GB/sec =    1000 GB/sec
+    disk: 1000*0.1 GB/sec =  100 GB/sec
+    net cross-section:        10 GB/sec
+  Explain host link b/w vs net cross-section b/w
 
-Do all computations require a big shuffle?
-  Word count -- partial reduction on Map side
-  "Combiner function", 4.3
-  x 1, x 1, x 1, y 1 -> x 3, y 1
-  Result: much less data to shuffle
+How to cope with communication bottleneck
+  Locality: split storage and computation the same way, onto same machines
+    Because disk and RAM are faster than the network
+  Batching: move megabytes at a time, not e.g. little key/value puts/gets
+    Because network latency is a worse problem than network throughput
+  Programming: let the developer indicate how data should move between machines
+    Because the most powerful solutions lie with application structure
+    
+The big programming idea in MapReduce is the key-driven shuffle
+  Map function implicitly specifies what and where data is moved -- with keys
+  Programmer can control movement, but isn't burdened with details
+  Programs are pretty constrained to help with communication:
+    Map can only read the local split of input data, for locality and simplicity
+    Just one batch shuffle per computation
+    Reduce can only look at one key, for locality and simplicity
+
+Where does MapReduce input come from?
+  Input is striped+replicated over GFS in 64 MB chunks
+  But in fact Map always reads from a local disk
+    They run the Maps on the GFS server that holds the data
+  Tradeoff:
+    Good: Map can read at disk speed, much faster than reading over net from GFS server
+    Bad: only two or three choices of where a given Map can run
+         potential problem for load balance, stragglers
+
+Where does MapReduce store intermediate data?
+  On the local disk of the Map server (not in GFS)
+  Tradeoff:
+    Good: local disk write is faster than writing over network to GFS server
+    Bad: only one copy, potential problem for fault-tolerance and load-balance
+
+Where does MapReduce store output?
+  In GFS, replicated, separate file per Reduce task
+  So output requires network communication -- slow
+  The reason: output can then be used as input for subsequent MapReduce
+
+The Question: How soon after it receives the first file of
+  intermediate data can a reduce worker start calling the application's
+  Reduce function?
+
+Why does MapReduce postpone choice of which worker runs a Reduce?
+  After all, might run faster if Map output directly streamed to reduce worker
+  Dynamic load balance!
+  If fixed in advance, one machine 2x slower -> 2x delay for whole computation
+    and maybe the rest of the cluster idle/wasted half the time
+
+Will MR scale?
+  Will buying 2x machines yield 1/2 the run-time, indefinitely?
+  Map calls probably scale
+    2x machines -> each Map's input 1/2 as big -> done in 1/2 the time
+    but: input may not be infinitely partitionable
+    but: tiny input and intermediate files have high overhead
+  Reduce calls probably scale
+    2x machines -> each handles 1/2 as many keys -> done in 1/2 the time
+    but: can't have more workers than keys
+    but: limited if some keys have more values than others
+      e.g. "the" has vast number of values for inverted index
+      so 2x machines -> no faster, since limited by key w/ most values
+  Network may limit scaling, if large intermediate data
+    Must spend money on faster core switches as well as more machines
+    Not easy -- a hot R+D area now
+  Stragglers are a problem, if one machine is slow, or load imbalance
+    Can't solve imbalance w/ more machines
+  Start-up time is about a minute!!!
+    Can't reduce that no matter how many machines you buy (probably makes it worse)
+  More machines -> more failures
+
+Now let's talk about fault tolerance
+  The challenge: paper says one server failure per job!
+  Too frequent for whole-job restart to be attractive
+
+The main idea: Map and Reduce are deterministic and functional,
+    so MapReduce can deal with failures by re-executing
+  Often a choice:
+    Re-execute big tasks, or
+    Save output, replicate, use small tasks
+  Best tradeoff depends on frequency of failures and expense of communication
 
 What if a worker fails while running Map?
   Can we restart just that Map on another machine?
-    GFS keeps copy of each input split on 3 machines
-  If a Map finishes, then worker fails, do we need to re-run?
-    Where is the Map's intermediate output stored?
-  What if Map had started to produce output?
-    Will some Reduces see Map's output twice?
-    And thus produce e.g. word counts that are too high?
-  How do Reduces know where to find re-computed Map output?
+    Yes: GFS keeps copy of each input split on 3 machines
+  Master knows, tells Reduce workers where to find intermediate files
 
-Why does Map write intermediate data to local disk?
-  Why not pro-actively send to Reduce machine?
-  Why not store in GFS for availability?
+If a Map finishes, then that worker fails, do we need to re-run that Map?
+  Intermediate output now inaccessible on worker's local disk.
+  Thus need to re-run Map elsewhere *unless* all Reduce workers have
+    already fetched that Map's output.
+
+What if Map had started to produce output, then crashed:
+  Will some Reduces see Map's output twice?
+  And thus produce e.g. word counts that are too high?
 
 What if a worker fails while running Reduce?
-  Where can a restarted worker find Reduce input?
+  Where can a replacement worker find Reduce input?
   If a Reduce finishes, then worker fails, do we need to re-run?
-    Where is the Reduce's output stored?
+    No: Reduce output is stored+replicated in GFS.
 
 Load balance
   What if some Map machines are faster than others?
     Or some input splits take longer to process?
   Don't want lots of idle machines and lots of work left to do!
-  Many more input splits than machines
+  Solution: many more input splits than machines
   Master hands out more Map tasks as machines finish
-  Finish at higher rate -> Master gives you work at a higher rate
+  Thus faster machines do bigger share of work
   But there's a constraint:
     Want to run Map task on machine that stores input data
-    There are 3 copies of all input data splits
+    GFS keeps 3 replicas of each input data split
     So only three efficient choices of where to run each Map task
 
 Stragglers
@@ -213,63 +176,74 @@ Stragglers
   Solution: always schedule multiple copies of very last tasks!
 
 How many Map/Reduce tasks vs workers should we have?
+  They use M = 10x number of workers, R = 2x.
   More => finer grained load balance.
   More => less redundant work for straggler reduction.
-  More => farm tasks of failed worker over more machines, re-execute faster.
+  More => spread tasks of failed worker over more machines, re-execute faster.
   More => overlap Map and shuffle, shuffle and Reduce.
-  Less => fewer intermediate files, less master overhead.
-  They use M = 10x number of workers, R = 2x.
-  M and R also maybe constrained by how data laid out in GFS.
+  Less => big intermediate files w/ less overhead.
+  M and R also maybe constrained by how data is striped in GFS.
+    e.g. 64 MByte GFS chunks means M needs to total data size / 64 MBytes
 
-Constraints on Map and Reduce fns help failures and load balance
-  Pure functions, so correct to run them more than once
-    No side effects, no communication, just input and output
-    Same input => same output
-  Master handles automatically -- no programmer burden
-
-Let's look at performance
+Let's look at paper's performance evaluation
 
 Figure 2 / Section 5.2
-  A simple grep, just Map, essentially no shuffle or reduce
+  Text search for rare 3-char pattern, just Map, no shuffle or reduce
   One terabyte of input
-  1000 machines
+  1800 machines
   Figure 2 x-axis is time, y-axis is input read rate
-  Why does it go up, then go down?
+  60 seconds of start-up time are *omitted*! (copying program, opening input files)
+  Why does it take so long (60 seconds) to reach the peak rate?
   Why does it go up to 30,000 MB/s? Why not 3,000 or 300,000?
+    That's 17 MB/sec per server.
     What limits the peak rate?
-  Why does it take 60 seconds to reach the peak rate?
-    Why doesn't it go up to 30,000 immediately?
 
 Figure 3(a) / Section 5.3
   sorting a terabyte
+  Should we be impressed by 800 seconds?
   Top graph -- Input rate
-    Why peak of 10,000 MB/s? Why less than Figure 2's 30,000 MB/s? (writes disk)
+    Why peak of 10,000 MB/s?
+    Why less than Figure 2's 30,000 MB/s? (writes disk)
     Why does read phase last abt 100 seconds?
   Middle graph -- Shuffle rate
     How is shuffle able to start before Map phase finishes? (more map tasks than workers)
-    Why does it peak at 5,000 MB/s? (??? net runs at abt 18 GB/s)
+    Why does it peak at 5,000 MB/s? (??? net cross-sec b/w abt 18 GB/s)
     Why a gap, then starts again? (runs some Reduce tasks, then fetches more)
+    Why is the 2nd bump lower than first? (maybe competing w/ overlapped output writes)
   Lower graph -- Reduce output rate
     How can reduces start before shuffle has finished? (again, shuffle gets all files for some tasks)
-    Why is output rate so much lower than input rate? (limited by shuffle, and writes 2x)
-    Why the gap between apparent end of output and vertical "Done" line? (reduce stragglers?)
+    Why is output rate so much lower than input rate? (net rather than disk; writes twice to GFS)
+    Why the gap between apparent end of output and vertical "Done" line? (stragglers?)
 
-Are there computations not well suited to MapReduce?
-  page-rank
-    iteratively adjust score based on scores of linking pages
-    not just two phases; random access to intermediate results
-  n-body gravity simulation
-    iterative
-    forces depend on positions of all other bodies
-    again, many phases, random access to intermediate data
-  Lots of research MR follow-ons (FDS, Berkeley Spark)
+What should we buy if we wanted sort to run faster?
+  Let's guess how much each resource limits performance.
+  Reading input from disk: 30 GB/sec = 33 seconds (Figure 2)
+  Map computation: between zero and 150 seconds (Figure 3(a) top)
+  Writing intermediate to disk: ? (maybe 30 Gb/sec = 33 seconds)
+  Map->Reduce across net: 5 GB/sec = 200 seconds
+  Local sort: 2*100 seconds (gap in Figure 3(a) middle)
+  Writing output to GFS twice: 2.5 GB/sec = 400 seconds
+  Stragglers: 150 seconds? (Figure 3(a) bottom tail)
+  The answer: the network accounts for 600 of 850 seconds
 
-But:
-  More flexibility => more communication, pressure on network
-  More flexibility => more difficult to recover from failure
-    To re-execute, must re-construct input from previous iterations
+Is it disappointing that sort harnesses only a small fraction of cluster CPU power?
+  After all, only 200 of 800 seconds were spent sorting.
+  If all they did was sort, they should sell CPUs/disks and buy a faster network.
 
-Retrospective
-  Still very successful inside Google
-  Hadoop very popular outside Google
-  Lots of tuning, but same model despite its simplicity
+Modern data centers have relatively faster networks
+  e.g. FDS's 5.5 terabits/sec cross-section b/w vs MR paper's 150 gigabits/sec
+  while CPUs are only modestly faster than in MR paper
+  so today bottleneck might have shifted away from net, towards CPU
+
+For what applications *doesn't* MapReduce work well?
+  Small updates (re-run whole computation?)
+  Small unpredictable reads (neither Map nor Reduce can choose input)
+  Multiple shuffles (can use multiple MR but not very efficient)
+    In general, data-flow graphs with more than two stages
+  Iteration (e.g. page-rank)
+
+MapReduce retrospective
+  Single-handedly made big cluster computation popular
+    (though coincident with big datacenters, cheap machines, data-oriented companies)
+  Hadoop is still very popular
+  Inspired better successors (Spark, DryadLINQ, &c)
