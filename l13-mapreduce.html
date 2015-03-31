@@ -1,0 +1,269 @@
+<h1>6.824 2015 Lecture 13: MapReduce</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the
+6.824 <a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from 
+Spring 2015.</p>
+
+<h2>Intro</h2>
+
+<ul>
+<li>2nd trip to this paper, talk more about fault tolerance
+<ul>
+<li>See <a href="l01-intro.html">first lecture</a></li>
+</ul></li>
+<li>a real triumph of simplicity for the programmer</li>
+<li>clever design tricks to get good performance</li>
+</ul>
+
+<h2>Example: Building an inverted index</h2>
+
+<ul>
+<li>you need an inverted index for a search index</li>
+<li>maps keywords to documents they are found in</li>
+</ul>
+
+<p>Example:</p>
+
+<pre><code>doc 31: I am Alex
+doc 32: Alex at 8 am
+</code></pre>
+
+<p>The output that we want, is an index: for each word in the input, we want
+a list of every place that word occurred (document + offset):</p>
+
+<pre><code>alex: 31/2, 32/0 ...
+am:   31/1, 32/3 ...
+</code></pre>
+
+<p>The actual map/reduce functions for building an inverted index:</p>
+
+<pre><code>map(doc file)
+    split doc into words
+    for each word
+        emit(word, {doc #, offset})
+
+reduce(word string, occurrences list&lt;doc #, offset&gt;)
+    emit(word, sorted list of ocurrences by doc # and then by offset)
+</code></pre>
+
+<h2>Input files</h2>
+
+<p>In MapReduce, the input is stored in GFS (Google's file system)</p>
+
+<pre><code>Input, M splits, one    R reduce tasks
+map function for each 
+split
+
+---------               ---------------------------------
+|       |               |   |   | * |           |   |   |
+---------               ----------|----------------------
+|       |               |   |   | * |           |   |   |
+---------               ----------|----------------------
+|       |               |   |   | * |           |   |   |
+---------               ----------|----------------------
+|       |               .   .   . |  
+---------               .   .   .  \
+|       |               .   .   .   \-----&gt; data for a single reduce task
+---------               .   .   .           is all the data in the column
+|       |               .   .   .
+---------               .   .   .
+|       |               .   .   .
+---------               .   .   .
+</code></pre>
+
+<p>What happens if the column of data for a reduce worker not fitting in memory?
+Seems like it would go to disk.</p>
+
+<p>Note that a single reduce call happens for every unique keyword. So, in our 
+inverted index example, this would mean a single reduce call for the keyword
+"the" which would appear probably a billion times in a large collection of 
+documents. Thus, this will take a while. MapReduce cannot parallelize the work
+in a reduce call (lost opportunity for certain reduce functions that are 
+composable, like f(reduce(k, l1), reduce(k, l2)) = reduce(k, l1+l2) ).</p>
+
+<ul>
+<li>I think <em>combiner functions</em> mentioned in the paper, can alleviate this issue</li>
+</ul>
+
+<h2>Performance</h2>
+
+<ul>
+<li>it's all about data movement
+<ul>
+<li>pushing terrabytes of data across a cluster</li>
+<li>1000 machines
+<ul>
+<li>can maybe push data to RAM (1GB/s) at 1000 GB/s</li>
+<li>can maybe push data to disk (100MB/s) at 100 GB/s</li>
+<li>network can run at 1Gbit/s = 100MB/s on a machine
+<ul>
+<li>for 1000 machine, the wiring is expensive and costs you speed</li>
+<li>network is usually a tree with servers at the leaves and bigger
+switches in the internal nodes</li>
+<li>bottleneck is root switch, which runs at 18GB/s at Google</li>
+</ul></li>
+<li>thus, network can only push data at 18GB/s <code>=&gt;</code> <em>bottleneck</em></li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h2>Design insights</h2>
+
+<p>Need to cope with the network problem.</p>
+
+<p>Distributed Shared Memory (DSM) is very flexible in that any machine can write
+memory on any location in (distributed) memory. The problem is that you end up
+w/ very bandwidth inefficient and latency sensitive systems. If you allow arbitrary
+reads/writes to data you end up with a bunch of latency-sensitive small data
+movements across the network.</p>
+
+<p>DSM makes fault tolerance quite difficult, when a single machine dies, because
+each machine can do whatever it wants (read or write any mem. loc.), so it's 
+hard to checkpoint the system.</p>
+
+<p><strong>Key ideas:</strong> </p>
+
+<ul>
+<li><code>Map()</code> and <code>Reduce()</code> work on local data only.</li>
+<li><code>Map()</code> and <code>Reduce()</code> only operate on big pieces of data
+<ul>
+<li>to amortize network cost of sending</li>
+</ul></li>
+<li>very little interaction between parts of the system
+<ul>
+<li>maps cannot talk to each other</li>
+<li>reduces cannot talk to each other</li>
+<li>maps and reduces cannot talk to each other
+<ul>
+<li>other than the implicit communication of sending the mapped data to
+the reduce functions</li>
+</ul></li>
+</ul></li>
+<li>give programmer abstract control over the network communication
+<ul>
+<li>some control over how keys are mapped into the reduce partitions</li>
+</ul></li>
+</ul>
+
+<p>Input is typically stored striped (64MB chunks) in GFS, over a lot of disks and 
+machines.</p>
+
+<ul>
+<li>gotta be clever, because this would imply that Map tasks are limited by
+network bandwidth</li>
+</ul>
+
+<p>MapReduce takes advantage of GFS knowledge, to actually run the map tasks locally
+on the GFS machines where the file chunks are stored. <code>=&gt;</code> increase bandwitdh
+to maps from 18GB/s to 100GB/s</p>
+
+<p>Intermediate map files generated by map are also stored locally. Downside is that
+there's a single copy of the data on that one machine and the reduce worker has
+to talk to it only <code>=&gt;</code> limited bandwidth.</p>
+
+<ul>
+<li>if the machine stops or crashes, the data is lost, have to restart map</li>
+</ul>
+
+<p>Data in GFS is actually replicated (2 or 3 copies), and this gives MapReduce 
+a choice of 2-3 servers that it can run every map task on.</p>
+
+<ul>
+<li>good for load/balancing (MR master can move slow map tasks to other machines)
+<ul>
+<li>don't get this benefit for reduce tasks</li>
+</ul></li>
+</ul>
+
+<p>Output of reduce is stored in GFS <code>=&gt;</code> reduce otuput is written across the network.
+<code>=&gt;</code> total output of MapReduce system is 18GB/s, if that's your cross-section
+bandwidth.</p>
+
+<h2>QOTD</h2>
+
+<p>How soon can reduce start after map emitted some data?</p>
+
+<p>Morris: As soon as a column is filled with data <code>&lt;=&gt;</code> as soon as all the maps
+are finished.</p>
+
+<p>Apparently, you could do it as soon as a map task emits a keyword, by feeding
+values as they are generated in the reduce task's iterator, but performance
+can be tricky to achieve in that case.</p>
+
+<h2>Does MapReduce scale well?</h2>
+
+<p>One of the big benefit of a distributed system, is that you <em>might</em> be able
+to speed it up by just buying more machines. Cheaper to buy machines than to
+pay programmers.</p>
+
+<p><code>nx</code> hardware => <code>nx</code> performance?, <code>n &gt; 1</code></p>
+
+<p>As we grow # of machines (10 fold), and input size stays constant <code>=&gt;</code> input 
+size has to be decreased (10 fold). Smaller splits (10x smaller).</p>
+
+<p>If we have millions of machines, the splits can be kilobytes in size <code>=&gt;</code> network
+latency will kill our performance.</p>
+
+<p>You can't have more reduce workers than you have keys.</p>
+
+<p>Scalability is limited by</p>
+
+<ul>
+<li>map split size</li>
+<li>number of keys <code>&lt;</code> # of reduce workers</li>
+<li>network bandwidth (need to buy more "network" too, as we buy more machines)
+<ul>
+<li>a really important problem</li>
+</ul></li>
+</ul>
+
+<p>The answer: certainly get some scaling, but not infinite (limited by network)</p>
+
+<h2>Fault tolerance</h2>
+
+<p>Challenge: if you run big jobs on 1000s of computers, you are sure to get some
+failures. So cannot simply restart whole computation. Must just redo failed machine's
+work.</p>
+
+<p>Difficult to achieve for DSM, easier for MapReduce.</p>
+
+<p>Assuming independent failures (also because maps/reduces are independent)</p>
+
+<p>If worker failed:</p>
+
+<ul>
+<li>can just restart</li>
+<li>can save intermediate output and resume after failure</li>
+</ul>
+
+<p>If maps fail, we have to rerun it, because it stores its output on the same machine,
+which is done. Master knows what the map was working on, so it can just restart.</p>
+
+<p>If a reduce worker crashes, because they store their output on GFS, on replicated
+different servers. We have a good chance of not having to recompute, if the
+reduce worker finished.</p>
+
+<h2>Paper's performance eval</h2>
+
+<p>Figure 2 in paper. Why does the bandwidth take 60 seconds to achieve 30GB/s?</p>
+
+<p>The MR job has 1800 mappers, and some <em>poor</em> master that has to give work to each
+one. So maybe the master takes a while to contact everyone.</p>
+
+<p>Why only 30GB/s? These are map tasks so no network overhead. Maybe the CPU is the
+limit? Unlikely. Seems like this is a disk bandwidth issue. 30GB/s / 1800 machines
+<code>=&gt;</code> 17MB/s per disk</p>
+
+<p>Figure 3 in paper. 800 secs for sorting 1TB of data <code>=&gt;</code> 1.25GB/s sort throughput</p>
+
+<p>One thing to notice is that the terrabyte of data fits in the memory of the 
+1800 machines. </p>
+
+<p>On a single machine with enough memory, Morris extrapolated that it would take
+around 30,000 seconds to sort 1TB of data (takes 2500secs to sort 100GB)</p>
+
+<p>Middle graph says they are only able to move data across the network at 5GB/s.
+Simply moving 1TB of data will take 200 seconds. And MapReduces moves it more than
+once: from maps to reduce, from reduce to GFS (multiple times for replication)</p>
+
+<p><em>Important insight:</em> Computation involves moving data. Not just CPU cycles.</p>
