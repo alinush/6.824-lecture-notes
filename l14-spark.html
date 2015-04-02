@@ -1,0 +1,244 @@
+<h1>6.824 2015 Lecture 14: Spark</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the
+6.824 <a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from
+Spring 2015.</p>
+
+<h2>Introduction</h2>
+
+<ul>
+<li>MapReduce benefits:
+<ul>
+<li>Scales</li>
+<li>Fault tolerance</li>
+<li>Strategy dealing with stragglers
+<ul>
+<li>If a map task is low, MapReduce starts another task on a different
+machine</li>
+<li>Tasks don't communicate, so easy to have them run twice in parallel</li>
+</ul></li>
+</ul></li>
+<li>MapReduce limitations:
+<ul>
+<li>very rigid form of computation</li>
+<li>one map phase, one level of communication between maps and reduce, and the
+reduce phase</li>
+<li>what if you wanted to build an inverted index <strong>and</strong> then sort it by the
+most popular keyword <code>=&gt;</code> you would need two MapReduce jobs</li>
+<li>so, cannot properly deal with multi-stage, iterative nor interactive jobs</li>
+</ul></li>
+</ul>
+
+<p>Users needed more complicated computations <code>=&gt;</code> Spark</p>
+
+<p>There were previous solutions that tackled different types of computations
+individually. Spark's aim was to provide one solution for a general enough model
+of computation.</p>
+
+<h2>Spark</h2>
+
+<p>Hard to do DSM while maintaining scalability and fault tolerance properties.</p>
+
+<p><strong>RDDs: Resilient Distributed Datasets</strong></p>
+
+<ul>
+<li>a Scala object essentially</li>
+<li>immutable</li>
+<li>partitioned across machines</li>
+</ul>
+
+<p>Example (build an RDD of all the lines in a text file that start with "ERROR"):</p>
+
+<pre><code>lines = textFile("log.txt")
+errors = lines.Fileter(_.startsWith("ERROR"))
+errors.persist()
+errors.count()
+</code></pre>
+
+<p>RDDs are created by: </p>
+
+<ul>
+<li>by referring to data in external storage</li>
+<li>by <em>transforming</em> other RDDs
+<ul>
+<li>like the <code>Filter</code> call above</li>
+</ul></li>
+</ul>
+
+<p><strong>Actions</strong> kick off a computation on the RDD, like the <code>count()</code> call in the 
+example.</p>
+
+<p>The <code>persist()</code> call tells Spark to hold the RDD in memory, for fast access.</p>
+
+<p>No work is done until the <code>count()</code> action is seen and executed (lazy evaluation)</p>
+
+<ul>
+<li>you can save work by combining all the filters applied before the action
+<ul>
+<li>faster to read AND filter than to read the file entirely and then do another
+filter pass</li>
+</ul></li>
+</ul>
+
+<h2>Fault tolerance</h2>
+
+<p>Lineage graphs: dependencies between RDDs</p>
+
+<pre><code>lines (file) 
+
+    |
+   \|   filter(_.startsWith("ERROR"))
+
+errors
+</code></pre>
+
+<p>Machines:</p>
+
+<pre><code>file = b1 b2 b3 b4 b5
+
+p1 p2 &lt;-\      p3 p4       p5
+-----          -----       -----
+| M1|   |      |M2 |       |M3 |
+-----   |      -----       -----
+b1 b2 --/      b3 b4       b5
+</code></pre>
+
+<p>If you lose an RDD's partition like p4 (because M2 failed), you can rebuild it
+by tracing through the dependency graph and decide (based on what's already
+computed) where to start and what to recompute.</p>
+
+<p>How do you know on what machines to recompute? In this example, <code>b3</code> and <code>b4</code>
+would be replicated on other machines (maybe on <code>M1</code> and <code>M3</code>), so that's where
+you would restart the computation.</p>
+
+<h2>Comparison</h2>
+
+<pre><code>           |     RDDs                      |     DSM
+-----------*-------------------------------|---------------------------
+reads      | any type / granularity        |  fine-grained
+writes     | only through transformations  |  fine-grained
+           |  coarse grained
+faults     | recompute                     |  checkpoint (a la Remus)
+stragglers | restart job on diff. machine  |  ? no good strategy ?
+</code></pre>
+
+<h2>Spark computation expressivity</h2>
+
+<p>Spark is pretty general: a lot of existing parallel computation paradigms, like
+MapReduce, can be implemented easily on top of it</p>
+
+<p>The reason coarse-grained writes are good enough is because a lot of parallel
+algorithms simply apply the same op over all data. </p>
+
+<h2>Partitioning</h2>
+
+<p>Can have a custom partitioning function that says "this RDD has 10 partitions,
+1st one is all elements starting with <code>a</code>, etc.."</p>
+
+<p>If you use your data set multiple times, grouping it properly so that the data
+you need sits on the same machine is important.</p>
+
+<h2>PageRank example</h2>
+
+<p>Example:</p>
+
+<pre><code>    the "o"'s are webpages
+    the arrows are links (sometimes directed, if not just pick a direction)
+
+    1    2
+    o&lt;---o &lt;-\
+    |\   |   |
+    | \  |   |
+    |  \ |   |
+    *   **   |
+    o---&gt;o --/    
+    3    4
+</code></pre>
+
+<p>Algorithm:</p>
+
+<ul>
+<li>Start every page with rank 1</li>
+<li>Everyone splits their rank across their neighbours
+<ul>
+<li>website 1 will give 0.5 to node 3 and node 4 and receive 0.5 from node 2 </li>
+</ul></li>
+<li>Iterate how many times? Until it converges apparently.</li>
+</ul>
+
+<p>Data:</p>
+
+<pre><code>RDD1 'links': (url, links)
+ - can compute with a map operation
+
+RDD2 'ranks': (url, rank)
+ - links.join(ranks) -&gt; (url, (links, rank))
+ -      .flatMap( 
+                (url, (links, rank))) 
+                    =&gt;
+                links.map( l -&gt; (l.dest, rank/n))
+            )
+ - TODO: not sure why 'rank/n` or how this transformation works
+ - store result in RDD3 'contribs'
+ - update ranks with contribs
+ - ranks = contribs.reduceByKey( _ + _ )
+</code></pre>
+
+<p>Example of bad allocation, because we'll transfer a lot of data:</p>
+
+<pre><code>    the squares are machines (partitions)
+
+            links                       ranks
+    -------------------------       ------------------------
+    |(a,...)|(d,...)|(c,...)|       |(d,1)  |(e,5)  |(c,3) |
+    |(b,...)|       |(e,...)|       |       |(a,1)  |(b,1) |
+    -------------------------       -----------------------
+        \                                     /
+         \------------\  /-------------------/
+                       \/  
+                    -------------------------       
+                    |(a,...)|(d,...)|       |       
+                    |       |       |       |       
+                    -------------------------
+</code></pre>
+
+<p>Example with partitioning:</p>
+
+<pre><code>            links                       ranks
+    -------------------------       ------------------------
+    |(a,...)|(e,...)|(e,...)|       |(a,1)  |(c,3)  |(e,3) |
+    |(b,...)|(d,...)|       |       |(b,1)  |(d,1)  |      |
+    -------------------------       ------------------------
+
+
+        contribs are easy to compute locally now
+</code></pre>
+
+<p>Does PageRank need communication at all then? Yes, the <code>contribs</code> RDD does a 
+<code>reduceByKey</code></p>
+
+<p>TODO: Not sure what it does</p>
+
+<h2>Internal representation</h2>
+
+<p>RDD methods:</p>
+
+<ul>
+<li><code>partitions</code> -- returns a list of partitions</li>
+<li><code>preferredLocations(p)</code> -- returns the preferred locations of a partition
+<ul>
+<li>tells you about machines where computation would be faster</li>
+</ul></li>
+<li><code>dependencies</code>
+<ul>
+<li>how you depend on other RDDs</li>
+</ul></li>
+<li><code>iterator(p, parentIters)</code>
+<ul>
+<li>ask an RDD to compute one of its partitions</li>
+</ul></li>
+<li><code>partitioner</code>
+<ul>
+<li>allows you to specify a partitioning function</li>
+</ul></li>
+</ul>
