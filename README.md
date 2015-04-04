@@ -20,6 +20,7 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 11: [Ficus](l11-ficus.html): optimistic concurrency control, vector timestamps, conflict resolution
  * Lecture 12: [Bayou](l12-bayou.html): disconnected operation, eventual consistency, Bayou
  * Lecture 13: [MapReduce](l13-mapreduce.html): MapReduce, scalability, performance
+ * Lecture 14: **Spark** [_guest lecture_](l14-spark.html) by Matei Zaharia: Resilient Distributed Datasets, Spark
 
 Papers
 ------
