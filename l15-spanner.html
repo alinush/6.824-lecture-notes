@@ -1,0 +1,513 @@
+<h1>6.824 2015 Lecture 15 Spanner</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the
+6.824 <a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from
+Spring 2015.</p>
+
+<h1>6.824 notes</h1>
+
+<p><a href="papers/spanner.pdf">Spanner: Google's Globally-Distributed Database</a>, 
+Corbett et al, OSDI 2012</p>
+
+<p>Why this paper?</p>
+
+<ul>
+<li>modern, high performance, driven by real-world needs</li>
+<li>sophisticated use of paxos</li>
+<li>tackles consistency + performance (will be a big theme)</li>
+<li>Lab 4 a (hugely) simplified version of Spanner</li>
+</ul>
+
+<p>What are the big ideas?</p>
+
+<ul>
+<li>shard management w/ paxos replication</li>
+<li>high performance despite synchronous WAN replication</li>
+<li>fast reads by <strong>asking only the nearest replica</strong></li>
+<li>consistency despite sharding (this is the real focus)</li>
+<li><strong>clever use of time</strong> for consistency</li>
+<li>distributed transactions</li>
+</ul>
+
+<p>This is a dense paper! I've tried to boil down some of the ideas to simpler 
+form.</p>
+
+<h2>Sharding</h2>
+
+<p>Idea: sharding</p>
+
+<ul>
+<li>we've seen this before in FDS</li>
+<li>the real problem is managing configuration changes</li>
+<li>Spanner has a more convincing design for this than FDS</li>
+</ul>
+
+<p>Simplified sharding outline (lab 4):</p>
+
+<ul>
+<li>replica groups, paxos-replicated
+<ul>
+<li>paxos log in each replica group</li>
+</ul></li>
+<li>master, paxos-replicated
+<ul>
+<li>assigns shards to groups</li>
+<li>numbered configurations</li>
+</ul></li>
+<li>if master moves a shard, groups eventually see new config
+<ul>
+<li><code>"start handoff Num=7"</code> op in both groups' paxos logs</li>
+<li>though perhaps not at the same time</li>
+</ul></li>
+<li><code>dst</code> can't finish handoff until it has copies of shard data at majority
+<ul>
+<li>and can't wait long for possibly-dead minority</li>
+<li>minority must catch up, so perhaps put shard data in paxos log (!)</li>
+</ul></li>
+<li><code>"end handoff Num=7"</code> op in both groups' logs</li>
+</ul>
+
+<p><strong>Q:</strong> What if a Put is concurrent w/ handoff?</p>
+
+<ul>
+<li>client sees new config, sends Put to new group before handoff starts?</li>
+<li>client has stale view and sends it to old group after handoff?</li>
+<li>arrives at either during handoff?</li>
+</ul>
+
+<p><strong>Q:</strong> What if a failure during handoff?
+ - e.g. old group thinks shard is handed off
+   + but new group fails before it thinks so</p>
+
+<p><strong>Q:</strong> Can <em>two</em> groups think they are serving a shard?</p>
+
+<p><strong>Q:</strong> Could old group still serve shard if can't hear master?</p>
+
+<p><strong>Idea:</strong> wide-area synchronous replication</p>
+
+<ul>
+<li><em>Goal:</em> survive single-site disasters</li>
+<li><em>Goal:</em> replica near customers</li>
+<li><em>Goal:</em> don't lose any updates</li>
+</ul>
+
+<p>Considered impractical until a few years ago</p>
+
+<ul>
+<li>paxos too expensive, so maybe primary/backup?</li>
+<li>if primary waits for ACK from backup
+<ul>
+<li>50ms network will limit throughput and cause palpable delay</li>
+<li>esp if app has to do multiple reads at 50ms each</li>
+</ul></li>
+<li>if primary does not wait, it will reply to client before durable</li>
+<li>danger of split brain; can't make network reliable</li>
+</ul>
+
+<p>What's changed?</p>
+
+<ul>
+<li>other site may be only 5 ms away -- San Francisco / Los Angeles</li>
+<li>faster/cheaper WAN</li>
+<li>apps written to tolerate delays
+<ul>
+<li>may make many slow read requests</li>
+<li>but issue them in parallel</li>
+<li>maybe time out quickly and try elsewhere, or redundant gets</li>
+</ul></li>
+<li>huge # of concurrent clients lets you get hi thruput despite high delay
+<ul>
+<li>run their requests in parallel</li>
+</ul></li>
+<li>people appreciate paxos more and have streamlined variants
+<ul>
+<li>fewer msgs
+<ul>
+<li>page 9 of paxos paper: 1 round per op w/ leader + bulk preprepare</li>
+<li>paper's scheme a little more involved b/c they must ensure
+there's at most one leader</li>
+</ul></li>
+<li>read at any replica</li>
+</ul></li>
+</ul>
+
+<p>Actual performance?</p>
+
+<ul>
+<li>Table 3
+<ul>
+<li>pretend just measuring paxos for writes, read at any replica for reads
+latency
+<ul>
+<li>why doesn't write latency go up w/ more replicas?</li>
+<li>why does std dev of latency go down w/ more replicas?</li>
+<li>r/o a <em>lot</em> faster since not a paxos agreement + use closest replica
+throughput</li>
+<li>why does read throughput go up w/ # replicas?</li>
+<li>why doesn't write throughput go up?</li>
+<li>does write thruput seem to be going down?</li>
+</ul></li>
+<li>what can we conclude from Table 3?
+<ul>
+<li>is the system fast? slow?</li>
+</ul></li>
+<li>how fast do your paxoses run?
+<ul>
+<li>mine takes 10 ms per agreement</li>
+<li>with purely local communication and no disk</li>
+<li>Spanner paxos might wait for disk write</li>
+</ul></li>
+</ul></li>
+<li>Figure 5
+<ul>
+<li><code>npaxos=5</code>, all leaders in same zone</li>
+<li>why does killing a non-leader in each group have no effect?
+for killing all the leaders ("leader-hard")
+<ul>
+<li>why flat for a few seconds?</li>
+<li>what causes it to start going up?</li>
+<li>why does it take 5 to 10 seconds to recover?</li>
+<li>why is slope <em>higher</em> until it rejoins?</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<p>Spanner reads from any paxos replica</p>
+
+<ul>
+<li>read does <em>not</em> involve a paxos agreement</li>
+<li>just reads the data directly from replica's k/v DB</li>
+<li>maybe 100x faster -- same room rather than cross-country</li>
+</ul>
+
+<p><strong>Q:</strong> Could we <em>write</em> to just one replica?</p>
+
+<p><strong>Q:</strong> Is reading from any replica correct?</p>
+
+<p>Example of problem:</p>
+
+<ul>
+<li>photo sharing site</li>
+<li>i have photos</li>
+<li>i have an ACL (access control list) saying who can see my photos</li>
+<li>i take my mom out of my ACL, then upload new photo</li>
+<li>really it's web front ends doing these client reads/writes</li>
+</ul>
+
+<p>Order of events:</p>
+
+<ol>
+<li>W1: I write ACL on group G1 (bare majority), then</li>
+<li>W2: I add image on G2 (bare majority), then</li>
+<li>mom reads image -- may get old data from lagging G2 replica</li>
+<li>mom reads ACL -- may get new data from G1</li>
+</ol>
+
+<p>This system is not acting like a single server!</p>
+
+<ul>
+<li>there was not really any point at which the image was
+<ul>
+<li>present but the ACL hadn't been updated</li>
+</ul></li>
+</ul>
+
+<p>This problem is caused by a combination of</p>
+
+<ul>
+<li>partitioning -- replica groups operate independently</li>
+<li>cutting corners for performance -- read from any replica</li>
+</ul>
+
+<p>How can we fix this?</p>
+
+<ol>
+<li>Make reads see latest data
+<ul>
+<li>e.g. full paxos for reads expensive!</li>
+</ul></li>
+<li>Make reads see <em>consistent</em> data
+<ul>
+<li>data as it existed at <em>some</em> previous point in time</li>
+<li>i.e. before #1, between #1 and #2, or after #2</li>
+<li>this turns out to be much cheaper</li>
+<li>spanner does this</li>
+</ul></li>
+</ol>
+
+<p>Here's a super-simplification of spanner's consistency story for r/o clients</p>
+
+<ul>
+<li>"snapshot" or "lock-free" reads</li>
+<li>assume for now that all the clocks agree</li>
+<li>server (paxos leader) tags each write with the time at which it occurred</li>
+<li>k/v DB stores <em>multiple</em> values for each key,
+<ul>
+<li>each with a different time</li>
+</ul></li>
+<li>reading client picks a time <code>t</code>
+<ul>
+<li>for each read
+<ul>
+<li>ask relevant replica to do the read at time <code>t</code></li>
+</ul></li>
+</ul></li>
+<li>how does a replica read a key at time <code>t</code>?
+<ul>
+<li>return the stored value with highest time <code>&lt;= t</code></li>
+</ul></li>
+<li>but wait, the replica may be behind
+<ul>
+<li>that is, there may be a write at time <code>&lt; t</code>, but replica hasn't seen it</li>
+<li>so replica must somehow be sure it has seen all writes <code>&lt;= t</code></li>
+<li>idea: has it seen <em>any</em> operation from time <code>&gt; t</code>?
+<ul>
+<li>if yes, and paxos group always agrees on ops in time order,
+it's enough to check/wait for an op with time <code>&gt; t</code></li>
+<li>that is what spanner does on reads (4.1.3)</li>
+</ul></li>
+</ul></li>
+<li>what time should a reading client pick?
+<ul>
+<li>using current time may force lagging replicas to wait</li>
+<li>so perhaps a little in the past</li>
+<li>client may miss latest updates</li>
+<li>but at least it will see consistent snapshot</li>
+<li>in our example, won't see new image w/o also seeing ACL update</li>
+</ul></li>
+</ul>
+
+<p>How does that fix our ACL/image example?</p>
+
+<ol>
+<li>W1: I write ACL, G1 assigns it time=10, then</li>
+<li>W2: I add image, G2 assigns it time=15 (> 10 since clocks agree)</li>
+<li>mom picks a time, for example t=14</li>
+<li>mom reads ACL t=14 from lagging G1 replica
+<ul>
+<li>if it hasn't seen paxos agreements up through t=14, it knows to wait
+so it will return G1</li>
+</ul></li>
+<li>mom reads image from G2 at t=14
+<ul>
+<li>image may have been written on that replica</li>
+<li>but it will know to <em>not</em> return it since image's time is 15</li>
+<li>other choices of <code>t</code> work too.</li>
+</ul></li>
+</ol>
+
+<p><strong>Q:</strong> Is it reasonable to assume that different computers' clocks agree?</p>
+
+<ul>
+<li>Why might they not agree?</li>
+</ul>
+
+<p><strong>Q:</strong> What may go wrong if servers' clocks don't agree?</p>
+
+<p>A performance problem: reading client may pick time in the future, forcing 
+reading replicas to wait to "catch up"</p>
+
+<p>A correctness problem:</p>
+
+<ul>
+<li>again, the ACL/image example</li>
+<li>G1 and G2 disagree about what time it is</li>
+</ul>
+
+<p>Sequence of events:</p>
+
+<ol>
+<li>W1: I write ACL on G1 -- stamped with time=15</li>
+<li>W2: I add image on G2 -- stamped with time=10</li>
+</ol>
+
+<p>Now a client read at t=14 will see image but not ACL update</p>
+
+<p><strong>Q:</strong> Why doesn't spanner just ensure that the clocks are all correct?</p>
+
+<ul>
+<li>after all, it has all those master GPS / atomic clocks</li>
+</ul>
+
+<h2>TrueTime (section 3)</h2>
+
+<ul>
+<li>there is an actual "absolute" time <code>t_abs</code>
+<ul>
+<li>but server clocks are typically off by some unknown amount</li>
+<li>TrueTime can bound the error</li>
+</ul></li>
+<li>so <code>now()</code> yields an interval: [earliest,latest]
+<ul>
+<li>earliest and latest are ordinary scalar times
+<ul>
+<li>perhaps microseconds since Jan 1 1970</li>
+</ul></li>
+</ul></li>
+<li><code>t_abs</code> is highly likely to be between earliest and latest</li>
+</ul>
+
+<p><strong>Q:</strong> How does TrueTime choose the interval?</p>
+
+<p><strong>Q:</strong> Why are GPS time receivers able to avoid this problem?</p>
+
+<ul>
+<li>Do they actually avoid it?</li>
+<li>What about the "atomic clocks"?</li>
+</ul>
+
+<p>Spanner assigns each write a scalar time</p>
+
+<ul>
+<li>might not be the actual absolute time</li>
+<li>but is chosen to ensure consistency</li>
+</ul>
+
+<p>The danger:</p>
+
+<ul>
+<li>W1 at G1, G1's interval is [20,30]
+<ul>
+<li>is any time in that interval OK?</li>
+</ul></li>
+<li>then W2 at G2, G2's interval is [11,21]
+<ul>
+<li>is any time in that interval OK?</li>
+</ul></li>
+<li>if they are not careful, might get s1=25 s2=15</li>
+</ul>
+
+<p>So what we want is:</p>
+
+<ul>
+<li>if W2 starts after W1 finishes, then <code>s2 &gt; s1</code></li>
+<li>simplified <em>"external consistency invariant"</em> from 4.1.2</li>
+<li>causes snapshot reads to see data consistent w/ true order of W1, W2</li>
+</ul>
+
+<p>How does spanner assign times to writes?</p>
+
+<ul>
+<li>(again, this is much simplified, see 4.1.2)</li>
+<li>a write request arrives at paxos leader</li>
+<li><code>s</code> will be the write's time-stamp</li>
+<li>leader sets <code>s</code> to <code>TrueTime now().latest</code>
+<ul>
+<li>this is "Start" in 4.1.2</li>
+</ul></li>
+<li>then leader <em>delays</em> until <code>s &lt; now().earliest</code>
+<ul>
+<li>i.e. until <code>s</code> is guaranteed to be in the past (compared to absolute time)</li>
+<li>this is "commit wait" in 4.1.2</li>
+</ul></li>
+<li>then leader runs paxos to cause the write to happen</li>
+<li>then leader replies to client</li>
+</ul>
+
+<p>Does this work for our example?</p>
+
+<ul>
+<li>W1 at G1, TrueTime says [20,30]
+<ul>
+<li><code>s1 = 30</code></li>
+<li>commit wait until TrueTime says [31,41]</li>
+<li>reply to client</li>
+</ul></li>
+<li>W2 at G2, TrueTime <em>must</em> now say <code>&gt;= [21,31]</code>
+<ul>
+<li>(otherwise TrueTime is broken)</li>
+<li>s2 = 31</li>
+<li>commit wait until TrueTime says [32,43]</li>
+<li>reply to client</li>
+</ul></li>
+<li>it does work for this example:
+<ul>
+<li>the client observed that W1 finished before S2 started,</li>
+<li>and indeed <code>s2 &gt; s1</code></li>
+<li>even though G2's TrueTime clock was slow by the most it could be</li>
+<li>so if my mom sees S2, she is guaranteed to also see W1</li>
+</ul></li>
+</ul>
+
+<p>Why the "Start" rule?</p>
+
+<ul>
+<li>i.e. why choose the time at the end of the TrueTime interval?</li>
+<li>previous writers waited only until their timestamps were barely <code>&lt; t_abs</code></li>
+<li>new writer must choose <code>s</code> greater than any completed write</li>
+<li><code>t_abs</code> might be as high as <code>now().latest</code></li>
+<li>so s = now().latest</li>
+</ul>
+
+<p>Why the "Commit Wait" rule?</p>
+
+<ul>
+<li>ensures that <code>s &lt; t_abs</code></li>
+<li>otherwise write might complete with an s in the future
+<ul>
+<li>and would let Start rule give too low an <code>s</code> to a subsequent write</li>
+</ul></li>
+</ul>
+
+<p><strong>Q:</strong> Why commit <em>wait</em>; why not immediately write value with chosen time?</p>
+
+<ul>
+<li>indirectly forces subsequent write to have high enough s
+<ul>
+<li>the system has no other way to communicate minimum acceptable next s
+for writes in different replica groups</li>
+</ul></li>
+<li>waiting forces writes that some external agent is serializing
+to have monotonically increasing timestamps</li>
+<li>w/o wait, our example goes back to s1=30 s2=21</li>
+<li>you could imagine explicit schemes to communicate last write's TS
+to the next write</li>
+</ul>
+
+<p><strong>Q:</strong> How long is the commit wait?</p>
+
+<p>This answers today's Question: a large TrueTime uncertainty requires a long 
+commit wait so Spanner authors are interested in accurate low-uncertainty time</p>
+
+<p>Let's step back</p>
+
+<ul>
+<li>why did we get into all this timestamp stuff?
+<ul>
+<li>our replicas were 100s or 1000s of miles apart (for locality/fault tol)</li>
+<li>we wanted fast reads from a local replica (no full paxos)</li>
+<li>our data was partitioned over many replica groups w/ separate clocks</li>
+<li>we wanted consistency for reads:
+<ul>
+<li>if W1 then W2, reads don't see W2 but not W1</li>
+</ul></li>
+<li>it's complex but it makes sense as a</li>
+<li>high-performance evolution of Lab 3 / Lab 4</li>
+</ul></li>
+</ul>
+
+<p>Why is this timestamp technique interesting?</p>
+
+<ul>
+<li>we want to enforce order -- things that happened in some
+order in real time are ordered the same way by the
+distributed system -- "external consistency"</li>
+<li>the naive approach requires a central agent, or lots of communication</li>
+<li>Spanner does the synchronization implicitly via time
+<ul>
+<li>time can be a form of communication</li>
+<li>e.g. we agree in advance to meet for dinner at 6:00pm</li>
+</ul></li>
+</ul>
+
+<p>There's a lot of additional complexity in the paper</p>
+
+<ul>
+<li>transactions, two phase commit, two phase locking,
+<ul>
+<li>schema change, query language, &amp;c</li>
+</ul></li>
+<li>some of this we'll see more of later</li>
+<li>in particular, the problem of ordering events in a
+distributed system will come up a lot, soon</li>
+</ul>
