@@ -5,6 +5,211 @@
 6.824 [course website](http://nil.csail.mit.edu/6.824/2015/schedule.html) from
 Spring 2015.
 
+Intro
+-----
+
+[Spanner paper, OSDI 2012](http://research.google.com/archive/spanner.html)
+
+ - Shattered old assumption: cannot assume that clocks are tightly synchronized
+   + tightly synchronized clocks are now feasible in a global scale distributed
+     system: GPS and atomic clocks as independent sources
+ - _Data model:_ immutable versioned data
+ - built and deployed system in multiple data centers
+ - Paxos helps you determine order of events. Why do we still need time?
+ - used synchronized time to allow local reads without locks
+ - transactions on top of replication
+   + two-phase commit across groups of replicas
+ - concurrency control
+   + strict two phase locking with timestamps
+ - Paxos
+   + long-lived leader (timed leases)
+   + pipelined (multiple proposals in flight)
+   + out-of-order commit, in-order apply
+
+Spanner and 'research'
+----------------------
+
+ - team is chock-full of PhDs
+ - we write research papers when we feel the urge and we have something to say
+ - cutting edge development, unbelievable scale, but we are not researchers
+
+Historical context
+------------------
+
+[Bigtable paper, OSDI 2006](http://research.google.com/archive/bigtable.html)
+
+ - started development at end of 2003 (6 PhDs)
+ - first customer launched on Bigtable mid 2005
+ - distributed key-value store
+   + single-row transactions
+   + later added lazy replication
+ - value proposition
+   + scale to large numbers
+   + automatic resharding
+ - Bigtable was one of the progenitors of "NoSQL" or more precisely "of how do
+   you store a lot of data without building a database"
+ - basic tenets at the time (design assumptions for Bigtable):
+   + who needs a database? key-value store suffices
+   + who needs SQL? unnecessary for most applications
+   + who needs transactions? two-phase commit is too expensive
+
+Why Spanner?
+------------
+
+ - found that Bigtable is too hard to use
+   + users like the power that SQL database give them
+   + engineers shouldn't have to code around
+     - the lack of transactions
+     - the bugs that manifest due to weak semantics provided by lazy replication
+   + programmer productivity matters 
+
+Megastore, started ca. 2006, built on top of Bigtable
+
+ - optimistic concurrency control
+ - paxos-based replication
+   + no long-lived leader (paxos "election" on every write)
+   + every paxos message was written to bigtable
+ - broader class of transactions than bigtable
+ - SQL-like schema and query languages
+ - had consistent replication
+
+Dremel, data analysis at Google, started ca. 2008
+
+ - column-oriented storage and query engine
+ - http://research.google.com/pubs/pub36632.html
+ - popular because it allowed SQL
+
+Transactions
+------------
+
+[Percolator, general purpose transactions](http://research.google.com/pubs/pub36726.html)
+
+ - snapshot isolation: a normal transaction has one commit point (logically
+   when you commit, everything happened then)
+   + TODO: lookup what this means, because I couldn't write down his explanation
+ - built on top of Bigtable
+ - users demanded transactions, but we weren't ready to build that into bigtable
+
+Spanner
+-------
+
+ - we knew we needed
+   + a database
+   + SQL
+   + consistent replication across data centers
+   + general purpose transactions
+ - the rest was "merely engineering"
+
+TrueTime came along... (story about how they found out about a guy in NY who
+was working on distributed clocks and they realized it could be useful for their
+concurrency control)
+
+Globally synchronized clocks
+----------------------------
+
+ - spanner behaves like a single-machine database
+   + consistent replication: replicas all report the same state
+   + external consistency: replicas all report the same order of events
+ - nice semantics
+
+Were we wrong with bigtable
+---------------------------
+
+Yes, and no:
+
+ - yes for the long-term: didn't know in 2003 what they knew in 2009, didn't have
+   the people or the technology
+ - no, because lots of people use bigtable at Google
+
+Imagine you are running a startup. What long-term issues can be postponed?
+
+Startup dilemma: 
+
+ - too much time spent on scalable storage => wasted effort => not done in time
+   => fail 
+ - too little time spent on scalable storage => when they get popular can't scale
+   => fail
+
+What do you have the skill/ability/will/vision to do?
+
+ - we could not have built Spanner 10 years ago: or even 5 years ago
+ - someone told them they should build transactions in, but they didn't do it 
+   because they couldn't at the time
+
+Interesting questions
+---------------------
+
+Why has the Bigtable paper had arguably a bigger impact on both the research 
+communities and technology communities?
+
+ - research vs. practice
+
+Why do system-researchers insist on building scalable key-value stores (and not
+databases)?
+
+
+Lessons
+-------
+
+### Lesson 0
+
+Timing is everything. Except luck trumps timing.
+
+You can't plan timing when the world is changing: design the best you can for
+the problems you have in front of you
+
+TrueTime happened due to fortuitous confluence of events and people (i.e. luck).
+Same with Bigtable. Spanner's initial design (before 2008) was nowhere near what
+Google has now: they had anti-luck until the project was restarted in 2008.
+
+### Lesson 1
+
+Build what you need, and don't overdesign. Don't underdesign either, because
+you'll pay for it.
+
+### Lesson 2
+
+Sometimes ignorance really is bliss. Or maybe luck.
+
+If you have blinders on, you can't overreach. If we had known we needed a 
+distributed replicated database with external consistency in 2004, we would have 
+failed.
+
+### Lesson 3
+
+Your userbase matters.
+ 
+ - bigtable was started when Google `< 2000` employees
+   + limited # of products
+   + not that many engineers
+ - spanner was started when Google was `10K` employees
+   + more products
+   + many more engineers, many more junior engineers, many more acquired companies
+ - productivity of your employees matters
+
+### Wrap up
+
+You can't buy luck. You can't plan for luck. But you can't ignore luck.
+
+You can increase your chances to be lucky:
+
+ - have strong technical skills
+ - work on your design sense (find opportunities to learn!)
+ - build a strong network of colleagues and friends
+ - learn how to work on a team
+ - learn what you are good at, and what you are _not_ good at
+   + be brutally honest with yourself
+   + be willing to ask for help
+   + admit when you are wrong
+   + people don't like working with people that constantly tell them they are wrong
+
+What Spanner lacks?
+-------------------
+
+Maybe disconnected access: Can we build apps that use DBs and can operate offline?
+
+[Disconnected operation in Coda file system](https://www.cs.berkeley.edu/~brewer/cs262b/Coda-TOCS.pdf) work.
+
 6.824 notes
 ===========
 
