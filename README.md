@@ -21,7 +21,7 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 12: [Bayou](l12-bayou.html): disconnected operation, eventual consistency, Bayou
  * Lecture 13: [MapReduce](l13-mapreduce.html): MapReduce, scalability, performance
  * Lecture 14: **Spark** [_guest lecture_](l14-spark.html) by Matei Zaharia: Resilient Distributed Datasets, Spark
- * Lecture 15: **Spanner** [_guest lecture_](l15-spanner.html) by someone at Google: Spanner, distributed database, clock skew
+ * Lecture 15: **Spanner** [_guest lecture_](l15-spanner.html) by Wilson Hsieh, Google: Spanner, distributed database, clock skew
 Papers
 ------
 
