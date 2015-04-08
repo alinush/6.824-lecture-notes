@@ -43,7 +43,7 @@ Hard to do DSM while maintaining scalability and fault tolerance properties.
 Example (build an RDD of all the lines in a text file that start with "ERROR"):
 
     lines = textFile("log.txt")
-    errors = lines.Fileter(_.startsWith("ERROR"))
+    errors = lines.Filter(_.startsWith("ERROR"))
     errors.persist()
     errors.count()
 

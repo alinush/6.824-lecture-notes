@@ -50,7 +50,7 @@ of computation.</p>
 <p>Example (build an RDD of all the lines in a text file that start with "ERROR"):</p>
 
 <pre><code>lines = textFile("log.txt")
-errors = lines.Fileter(_.startsWith("ERROR"))
+errors = lines.Filter(_.startsWith("ERROR"))
 errors.persist()
 errors.count()
 </code></pre>
