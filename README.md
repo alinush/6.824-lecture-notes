@@ -9,12 +9,12 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 1: [Introduction](l01-intro.html): distributed system definition, motivations, architecture, implementation, performance, fault-tolerance, consistency, MapReduce 
  * Lecture 2: [Remote Procedure Calls (RPCs)](l02-rpc.html): RPC overview, marshalling, binding, threads, "at-least-once", "at-most-once", "exactly once", Go's RPC, thread synchronization
  * Lecture 3: [Fault tolerance](l03-fault-tolerance.html): primary-backup replication, state transfer, "split-brain", Remus (NSDI 2008),  
- * Lecture 4: [Flat datacenter storage](l04-more-primary-backup.html): flat datacenter storage
- * Lecture 5: [Paxos](l05-paxos.html): Paxos, a consensus algorithm
+ * Lecture 4: [Flat datacenter storage](l04-more-primary-backup.html): flat datacenter storage, bisection bandwidth, striping
+ * Lecture 5: [Paxos](l05-paxos.html): Paxos, consensus algorithms
     + [Paxos algorithm description](paxos-algorithm.html)
  * Lecture 6: [Raft](l06-raft.html): Raft, a more understandable consensus algorithm
  * Lecture 7: **Google Go** [_guest lecture_](l07-go.html) by Russ Cox
- * Lecture 8: [Harp](l08-harp.html): distributed file system
+ * Lecture 8: [Harp](l08-harp.html): distributed file system, "the UPS trick", witnesses
  * Lecture 9: [IVY](l09-dist-comp-seq-consistency.html): distributed shared memory, sequential consistency
  * Lecture 10: [TreadMarks](l10-treadmarks.html): userspace distributed shared memory system, vector timestamps, release consistency (lazy/eager), false sharing, write amplification
  * Lecture 11: [Ficus](l11-ficus.html): optimistic concurrency control, vector timestamps, conflict resolution
