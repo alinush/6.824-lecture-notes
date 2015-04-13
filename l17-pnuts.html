@@ -1,0 +1,484 @@
+<h1>6.824 2015 Lecture 17: PNUTS</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the
+6.824 <a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from 
+Spring 2015.</p>
+
+<p>Brian F. Cooper, Raghu Ramakrishnan, Utkarsh Srivastava, Adam
+Silberstein, Philip Bohannon, Hans-Arno Jacobsen, Nick Puz, Daniel
+Weaver and Ramana Yerneni. PNUTS: Yahoo!'s Hosted Data Serving
+Platform. Proceedings of VLDB, 2008.</p>
+
+<p>Why this paper?</p>
+
+<ul>
+<li>same basic goals as Facebook/memcache paper, more principled design</li>
+<li>multi-region is very challenging -- 100ms network delays</li>
+<li>conscious trade-off between consistency and performance</li>
+</ul>
+
+<p>What is PNUTS' overall goal?</p>
+
+<p>Diagram:</p>
+
+<pre><code>[world, browsers, data centers]
+</code></pre>
+
+<ul>
+<li>overall story similar to that of Spanner and Facebook/memcache</li>
+<li>data centers ("regions") all over the world</li>
+<li>web applications, e.g. mail, shopping, social net
+<ul>
+<li>each app probably runs at all regions</li>
+</ul></li>
+<li>PNUTS keeps state for apps
+<ul>
+<li>per-user: profile, shopping cart, friend list</li>
+<li>per-item: book popularity, user comments</li>
+</ul></li>
+<li>app might need any piece of data at any data center</li>
+<li>need to handle lots of concurrent updates to different data
+<ul>
+<li>e.g. lots of users must be able to add items to shopping cart at same time
+thus 1000s of PNUTS servers</li>
+</ul></li>
+<li>1000s of servers => crashes must be frequent</li>
+</ul>
+
+<h2>Overview</h2>
+
+<p>Diagram:</p>
+
+<pre><code>3 regions, browsers, web apps, tablet ctlrs, routers, storage units, MBs]
+</code></pre>
+
+<ul>
+<li>each region has all data</li>
+<li>each table partitioned by key over storage units
+<ul>
+<li>tablet servers + routers know the partition plan</li>
+</ul></li>
+</ul>
+
+<p>Why replicas of all data at multiple regions?</p>
+
+<ul>
+<li>multiple regions -> each user's data geographically close to user</li>
+<li>multiple complete replicas -> maybe survive entire region failure</li>
+<li>complete replicas -> read anything quickly
+<ul>
+<li>since some data used by many users / many regions</li>
+<li>once you have multiple regions, fast reads are very important</li>
+</ul></li>
+</ul>
+
+<p>What are the drawbacks of a copy at each region?</p>
+
+<ul>
+<li>updates will be slow, need to contact every region</li>
+<li>local reads will probably be stale</li>
+<li>updates from multiple regions need to be sorted out
+<ul>
+<li>keep replicas identical</li>
+<li>avoid order anomalies</li>
+<li>don't lose updates (e.g. read-modify-write for counter)</li>
+</ul></li>
+<li>disk space probably not an issue for their uses</li>
+</ul>
+
+<p>What is the data and query model?</p>
+
+<ul>
+<li>basically key/value</li>
+<li>reads/writes probably by column
+<ul>
+<li>so a write might replace just one column, not whole record</li>
+</ul></li>
+<li>range scan for ordered tables</li>
+</ul>
+
+<p>How do updates work?</p>
+
+<ul>
+<li>app server gets web request, needs to write data in PNUTS</li>
+<li>need to update every region!</li>
+<li>why not just have app logic send update to every region?
+<ul>
+<li>what if app crashes after updating only some regions?</li>
+<li>what if concurrent updates to same record?</li>
+</ul></li>
+</ul>
+
+<p>PNUTS has a "record master" for each record</p>
+
+<ul>
+<li>all updates must go through that region
+<ul>
+<li>each record has a hidden column indicating region of record master</li>
+</ul></li>
+<li>responsible storage unit executes updates one at a time per record</li>
+<li>tells MB to broadcast update to all regions</li>
+<li>per-record master probably better than Facebook/memcache master region</li>
+</ul>
+
+<p>So the complete update story (some guesswork):</p>
+
+<p>App wants to update some columns of a record, knows key</p>
+
+<ol>
+<li>app sends key and update to local SU1</li>
+<li>SU1 looks up record master for key: SI2</li>
+<li>SU1 sends update request to router at SI2</li>
+<li>router at SI2 forwards update to local SU2 for key</li>
+<li>SU2 sends update to local Message Broker (MB)</li>
+<li>MB stores on disk + backup MB, sends vers # to original app
+ how does MB know the vers #? maybe SU2 told it
+ or perhaps SU2 (not MB) replies to original app</li>
+<li>MB sends update to router at every region</li>
+<li>every region updates local copy</li>
+</ol>
+
+<p>Puzzles:</p>
+
+<ul>
+<li>3.2.1 says MB is commit point
+<ul>
+<li>i.e. MB writes to log on two disks, keeps trying to deliver
+why isn't MB disk a terrible bottleneck?</li>
+</ul></li>
+<li>does update go to MB then SU2? or SU2 then MB? or SU2, MB, SU2?
+<ul>
+<li>maybe MB then SU2, since MB is commit point</li>
+<li>maybe SU2 then MB, since SU2 has to check it's the record's master
+and perhaps pick the new version number, tho maybe not needed</li>
+</ul></li>
+<li>who replies to client w/ new version #?</li>
+</ul>
+
+<p>All writes are multi-region and thus slow -- why does it make sense?</p>
+
+<ul>
+<li>application waits for MB commit but not propagation ("asynchronous")</li>
+<li>master likely to be local (they claim 80% of the time)
+<ul>
+<li>so MB commit will often be quick</li>
+<li>and app/user will often see its own writes soon</li>
+</ul></li>
+<li>still, eval says 300ms if master is remote!</li>
+<li>down side: readers at non-master regions may see stale data</li>
+</ul>
+
+<p>How does a read-only query execute?</p>
+
+<ul>
+<li>multiple kinds of reads (section 2.2) -- why?</li>
+<li>application gets to choose how consistent</li>
+<li><code>read-any(k)</code>
+<ul>
+<li>read from local SU</li>
+<li>might return stale data (even if you just wrote!)</li>
+<li>why: app wants speed but doesn't care about freshness</li>
+</ul></li>
+<li><code>read-critical(k, required_version)</code>
+<ul>
+<li>maybe read from local SU if it has vers >= required_version</li>
+<li>otherwise read from master SU?</li>
+<li>why: app wants to see its own write</li>
+</ul></li>
+<li><code>read-latest(k)</code>
+<ul>
+<li>always read from master SU (? "if local copy too stale")</li>
+<li>slow if master is remote!</li>
+<li>why: app needs fresh data</li>
+</ul></li>
+</ul>
+
+<p>What if app needs to increment a counter stored in a record?</p>
+
+<ul>
+<li>app reads old value, increments locally, writes new value</li>
+<li>what if the local read produced stale data?</li>
+<li>what if read was OK, but concurrent updates?</li>
+</ul>
+
+<p><code>test-and-set-write(version#, new value)</code> gives you atomic update to one record
+ - master rejects the write if current version # != version#
+ - so if concurrent updates, one will lose and retry </p>
+
+<p><code>TestAndSet</code> example:</p>
+
+<pre><code>  while(1):
+    (x, ver) = read-latest(k)
+    if(t-a-s-w(k, ver, x+1))
+      break
+</code></pre>
+
+<h2>The Question</h2>
+
+<ul>
+<li>how does PNUTS cope with Example 1 (page 2)</li>
+<li>Initially Alice's mother is in Alice's ACL, so mother can see photos
+<ol>
+<li>Alice removes her mother from ACL</li>
+<li>Alice posts spring-break photos</li>
+</ol></li>
+<li>could her mother see update #2 but not update #1?
+<ul>
+<li>esp if mother uses different region than Alice
+or if Alice does the updates from different regions</li>
+</ul></li>
+<li>ACL and photo list must be in the same record
+<ul>
+<li>since PNUTS guarantees order only for updates to same record</li>
+</ul></li>
+<li>Alice sends updates to her record's master region in order
+<ul>
+<li>master region broadcasts via MB in order</li>
+<li>MB tells other regions to apply updates in order</li>
+</ul></li>
+<li>What if Alice's mother:
+<ul>
+<li>reads the old ACL, that includes mother</li>
+<li>reads the new photo list</li>
+<li>answer: just one read of Alice's record, has both ACL and photo list
+<ul>
+<li>if record doesn't have new ACL, order says it can't have new photos either</li>
+</ul></li>
+</ul></li>
+<li>How could a storage system get this wrong?
+<ul>
+<li>No ordering through single master (e.g. Dynamo)</li>
+</ul></li>
+</ul>
+
+<p>How to change record's master if no failures?</p>
+
+<ul>
+<li>e.g. I move from Boston to LA</li>
+<li>perhaps just update the record, via old master?
+<ul>
+<li>since ID of master region is stored in the record</li>
+</ul></li>
+<li>old master announces change over MB</li>
+<li>a few subsequent updates might go to the old master
+<ul>
+<li>it will reject them, app retries and finds new master?</li>
+</ul></li>
+</ul>
+
+<p>What if we wanted to do bank transfers?
+ - from one account (record) to another
+ - can <code>t-a-s-w</code> be used for this?
+ - multi-record updates are not atomic
+   + other readers can see intermediate state
+   + other writers are not locked out
+ - multi-record reads are not atomic
+   + might read one account before xfer, other account after xfer</p>
+
+<p>Is lack of general transactions a problem for web applications?</p>
+
+<ul>
+<li>maybe not, if programmers know to expect it</li>
+</ul>
+
+<p>What about tolerating failures?</p>
+
+<p>App server crashes midway through a set of updates</p>
+
+<ul>
+<li>not a transaction, so only some of writes will happen</li>
+<li>but master SU/MB either did or didn't get each write
+<ul>
+<li>so each write happens at all regions, or none</li>
+</ul></li>
+</ul>
+
+<p>SU down briefly, or network temporarily broken/lossy</p>
+
+<ul>
+<li>(I'm guessing here, could be wrong)</li>
+<li>MB keeps trying until SU acks
+<ul>
+<li>SU shouldn't ACK until safely on disk</li>
+</ul></li>
+</ul>
+
+<p>SU loses disk contents, or doesn't automatically reboot </p>
+
+<ul>
+<li>can apps read from remote regions?
+<ul>
+<li>paper doesn't say</li>
+</ul></li>
+<li>need to restore disk content from SUs at other regions
+<ol>
+<li>subscribe to MB feed, and save them for now</li>
+<li>copy content from SU at another region</li>
+<li>replay saved MB updates</li>
+</ol></li>
+<li>Puzzle: 
+<ul>
+<li>how to ensure we didn't miss any MB updates for this SU?
+<ul>
+<li>e.g. subscribe to MB at time=100, but source SU only saw through 90?</li>
+</ul></li>
+<li>will replay apply updates twice? is that harmful?</li>
+<li>paper mentions sending checkpoint message through MB
+<ul>
+<li>maybe fetch copy as of when the checkpoint arrived</li>
+<li>and only replay after the checkpoint</li>
+<li>BUT no ordering among MB streams from multiple regions</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<p>MB crashes after accepting update</p>
+
+<ul>
+<li>logs to disks on two MB servers before ACKing</li>
+<li>recovery looks at log, (re)sends logged msgs</li>
+<li>record master SU maybe re-sends an update if MB crash before ACK
+<ul>
+<li>maybe record version #s will allow SUs to ignore duplicate</li>
+</ul></li>
+</ul>
+
+<p>MB is a neat idea</p>
+
+<ul>
+<li>atomic: updates all replicas, or none
+<ul>
+<li>rather than app server updating replicas (crash...)</li>
+</ul></li>
+<li>reliable: keeps trying, to cope with temporarily SU/region failure</li>
+<li>async: apps don't have to wait for write to complete, good for WAN</li>
+<li>ordered: keeps replicas identical even w/ multiple writers</li>
+</ul>
+
+<p>Record's master region loses network connection</p>
+
+<ul>
+<li>can other regions designate a replacement RM?
+<ul>
+<li>no: original RM's MB may have logged updates, only some sent out</li>
+</ul></li>
+<li>do other regions have to wait indefinitely? yes
+<ul>
+<li>this is one price of ordered updates / strict-ish consistency</li>
+</ul></li>
+</ul>
+
+<h2>Evaluation</h2>
+
+<p>Evaluation focuses on latency and scaling, not throughput</p>
+
+<p>5.2: time for an insert while busy</p>
+
+<ul>
+<li>depends on how far away Record Master is</li>
+<li>RM local: 75.6 ms</li>
+<li>RM nearby: 131.5 ms</li>
+<li>RM other coast: 315.5 ms</li>
+</ul>
+
+<p>What is 5.2 measuring? from what to what?</p>
+
+<ul>
+<li>maybe web server starts insert, to RM replies w/ new version?</li>
+<li>not time for MB to propagate to all regions
+<ul>
+<li>since then local RM wouldn't be <code>&lt; remote</code></li>
+</ul></li>
+</ul>
+
+<p>Why 75 ms?</p>
+
+<p>Is it 75 ms of network speed-of-light delay?</p>
+
+<ul>
+<li>no: local</li>
+</ul>
+
+<p>Is the 75 ms mostly queuing, waiting for other client's operations?</p>
+
+<ul>
+<li>no: they imply 100 clients was max that didn't cause delay to rise</li>
+</ul>
+
+<p>End of 5.2 suggests 40 ms of 75 ms in in SU</p>
+
+<ul>
+<li>how could it take 40 ms?
+<ul>
+<li>each key/value is one file?</li>
+<li>creating a file takes 3 disk writes (directory, inode, content)?</li>
+</ul></li>
+<li>what's the other 35 ms?
+<ul>
+<li>MB disk write?</li>
+</ul></li>
+</ul>
+
+<p>But only 33 ms (not 75) for "ordered table" (MySQL/Innodb)</p>
+
+<ul>
+<li>closer to the one or two disk write we'd expect</li>
+</ul>
+
+<p>5.3 / Figure 3: effect of increasing request rate</p>
+
+<ul>
+<li>what do we expect for graph w/ x-axis req rate, y-axis latency?
+<ul>
+<li>system has some inherent capacity, e.g. total disk seeks/second</li>
+<li>for lower rates, constant latency</li>
+<li>for higher rates, queue grows rapidly, avg latency blows up</li>
+</ul></li>
+<li>blow-up should be near max capacity of h/w
+<ul>
+<li>e.g. # disk arms / seek time</li>
+</ul></li>
+<li>we don't see that in Figure 3
+<ul>
+<li>end of 5.3 says clients too slow</li>
+<li>at >= 75 ms/op, 300 clients -> about 4000/sec</li>
+</ul></li>
+<li>text says max possible rate was about 3000/second
+<ul>
+<li>10% writes, so 300 writes/second</li>
+<li>5 SU per region, so 60 writes/SU/second</li>
+<li>about right if each write does a random disk I/O</li>
+<li>but you'll need lots of SUs for millions of active users</li>
+</ul></li>
+</ul>
+
+<p>Stepping back, what were PNUTS key design decisions?</p>
+
+<ol>
+<li>replication of all data at multiple regions
+<ul>
+<li>fast reads, slow writes</li>
+</ul></li>
+<li>relaxed consistency -- stale reads
+<ul>
+<li>b/c writes are slow</li>
+</ul></li>
+<li>only single-row transactions w/ test-and-set-write</li>
+<li>sequence all writes thru master region
+<ul>
+<li>pro: keeps replicas identical,
+enforces serial order on updates,
+easy to reason about</li>
+<li>con: slow, no progress if master region disconnected</li>
+</ul></li>
+</ol>
+
+<p>Next: Dynamo, a very different design</p>
+
+<ul>
+<li>async replication, but no master</li>
+<li>eventual consistency</li>
+<li>always allow updates</li>
+<li>tree of versions if network partitions</li>
+<li>readers must reconcile versions</li>
+</ul>
