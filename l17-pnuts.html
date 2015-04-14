@@ -4,6 +4,250 @@
 6.824 <a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from 
 Spring 2015.</p>
 
+<h1>PNUTS</h1>
+
+<ul>
+<li>a solution to the same problem Spanner and memcached solved</li>
+<li>PNUTS is a more-principled designed than the memcache Facebook design
+<ul>
+<li>"it was actually designed"</li>
+</ul></li>
+<li>make reads fast</li>
+<li>upside: web applications are able to do fast local reads due to replication</li>
+<li>downside: writes will be slow, because they need to be replicated</li>
+<li>because writes have to be distributed to all the regions, there will
+be a fundamental delay between when writes happen and when the updates
+actually propagate
+<ul>
+<li><code>=&gt;</code> potential for stale reads</li>
+</ul></li>
+<li>if there's data that could be updated by concurrent clients, there will
+be a problem with multiple writes
+<ul>
+<li>need all regions to see our writes in the same order</li>
+</ul></li>
+</ul>
+
+<p>Diagram:</p>
+
+<pre><code>Region R1                        Region R2
+---------                        ---------
+
+ W1 Mesage broker                 W1 Message broker
+ W2     (replicated)              W2     (replicated)
+ W3                               W3
+ ..         Tablet controller     ..         Tablet controller
+                (replicated)                     (replicated)
+
+    Router1 Router2 ...              Router1 Router2 ...     
+
+    SU1 SU2 SU3 ...                  SU1 SU2 SU3 ...
+</code></pre>
+
+<ul>
+<li>each table in a region is partitioned among storage units (SUs)</li>
+<li>each SU has a disk</li>
+<li>routers know the partitioning?</li>
+<li>each region also has its own set of webservers</li>
+</ul>
+
+<h2>Updates</h2>
+
+<ul>
+<li>each record in PNUTS has its own master region through which all writes have
+to go
+<ul>
+<li>different than memcache at facebook, they had a master region for <em>all</em>
+records</li>
+<li>in PNUTS every record has a different master</li>
+<li>Note: a record is just a row in a table (and has an extra field that
+stores its master)</li>
+</ul></li>
+<li>updating records that are in regions far away from the user will take longer
+of course</li>
+<li>how does the webserver know where to send the update?
+<ul>
+<li>contact one of the routers</li>
+<li>router looks at the key, knows it's stored in say SU3</li>
+<li>find out from SU3 that a different region <code>r2</code> has the master copy
+<ul>
+<li>doesn't know which SU at <code>r2</code> the record is at</li>
+</ul></li>
+<li>contact one of the routers in <code>r2</code></li>
+<li>router tells you the SU to store it at</li>
+<li>the SU then needs to send out the update to all the other regions</li>
+<li>the SU sends the update to the message brokers
+<ul>
+<li>not clear if SU applies the update to its own disk before</li>
+</ul></li>
+<li>the message broker writes a copy of the update to the disk
+because it is <em>committing</em> to actually sending the update everywhere
+<ul>
+<li>important because we don't want a failed server to result in partially 
+propagating the update</li>
+</ul></li>
+<li>the MB will send it out to other MBs at other sites </li>
+<li>somehow the web app needs to find out that the write completes
+<ul>
+<li>not clear who sends the ACK back</li>
+<li>seems that the MB replies back to the webserver app as soon as it 
+commits the update to the disk</li>
+</ul></li>
+<li>asynchronous writes because, from POV of webapp, write is done when MB has
+written it to its disk</li>
+<li>why isn't the MB a bottleneck? It has to write a lot of stuff:
+<ul>
+<li>different applications have a different message broker</li>
+<li>MB may be able to do much more batching of the writes</li>
+<li>maybe also MB writes are also less complex than normal database writes
+where you have to modify Btrees, maybe go through a file system, etc.</li>
+</ul></li>
+<li>because they funnel all the writes through some MB they get some 
+semantics for writes</li>
+</ul></li>
+</ul>
+
+<h2>Write semantics</h2>
+
+<h3>Write order to single records</h3>
+
+<pre><code>Name        Where       What
+----        -----       ----
+Alice       home        asleep
+Bob
+</code></pre>
+
+<ul>
+<li>Alice's application says <code>write(what=awake)</code>
+<ul>
+<li>write goes through PNUTS</li>
+</ul></li>
+<li>Alice's application says <code>write(where=work)</code>
+<ul>
+<li>write goes through PNUTS</li>
+</ul></li>
+<li>useful semantics given by PNUTS
+<ul>
+<li>other people in different regions might see
+<ul>
+<li>alice at home asleep</li>
+<li>alice at home awake</li>
+<li>alice at work awake</li>
+</ul></li>
+<li>other people won't see a view of the record inconsistent with the order of
+the writes
+<ul>
+<li>alice at work asleep</li>
+</ul></li>
+<li>kind of the main consistency semantics provided by PNUTS</li>
+<li>a result of sequencing the writes through the MBs</li>
+<li>paper calls this <em>per-record timeline consistency</em></li>
+<li>note that their model restricts them to only have transactions on a 
+single record basis</li>
+</ul></li>
+</ul>
+
+<h3>When would you care about stale data?</h3>
+
+<ul>
+<li>after you added something to your shopping cart, you would expect to see it
+there</li>
+</ul>
+
+<p>Reads vs. staleness</p>
+
+<pre><code>    read-any(key) -&gt; fast read, just executes the read on the SU and does
+                   not wait for any writes to propagate
+
+    read-critical(key, ver) -&gt; returns the read record where ver(record) &gt;= ver
+     - useful for reading your own writes
+     - true when you have one webpage in a single tab
+     - if you update your shopping cart in one tab, then the other tab
+       will not be aware of that version number from the first tab
+
+    read-latest(key) -&gt; will always go to the master copy and read the latest
+                      data there
+</code></pre>
+
+<h3>Writes, atomic updates</h3>
+
+<p>Example: increment a counter in a record</p>
+
+<pre><code>    test-and-set-write(ver, key, newvalue) -&gt; always gets sent to the master
+        region for the key. look at the version and if it matches provided
+        one then update the record with the new value
+
+        // implementing v[k]++
+        while true:
+            (x, v) = read-latest(k)
+            if test-and-set-write(k, v, x+1)
+                break
+</code></pre>
+
+<h2>Question of the day</h2>
+
+<p>Alice comes back from spring break and she:</p>
+
+<ul>
+<li>removes her mom from her ACL</li>
+<li>posts spring break photos</li>
+</ul>
+
+<p>Can her mom see her photos due to out-of-order writes?</p>
+
+<p>If Alice has all the photos her mom can see in a single record, then no.</p>
+
+<pre><code>Alice   |   ACL     | List of photos
+-------- ----------- ----------------
+            mom         p7, p99
+</code></pre>
+
+<p>Assuming the code her mom is executing reads the full record (ACL + photos) when
+doing the check, and doesn't first read the ACL, wait a while and then read
+the photos</p>
+
+<h2>Failures</h2>
+
+<p>If webapp server fails in the middle of doing a bunch of writes, then only
+partial info would have been written to PNUTS, possibly leading to corruption.</p>
+
+<ul>
+<li>no transactions for multiple writes</li>
+</ul>
+
+<p>If SU crashes and reboots, it can recover from disk and MB can keep retrying it</p>
+
+<p>What happens when SU loses its disk? It needs to recover the data.</p>
+
+<ul>
+<li>the paper says the SU will clone its data from a SU from another region
+<ul>
+<li>main challenge is that updates are being sent by MBs to records that
+are being copied</li>
+<li>either updates go to source of copy, or destination of copy remembers the
+update</li>
+<li>ultimately they both need to have the update in the end</li>
+</ul></li>
+</ul>
+
+<h2>Performance</h2>
+
+<p>Evaluation mostly focuses on latency and not on throughput. Maybe this is
+specific to their needs.</p>
+
+<p>Not clear how they can support millions of users with MBs that can only do
+hundreds of writes per second.</p>
+
+<p>Why is it taking them 75ms to do a local update, where everyone is in the same
+region?</p>
+
+<ul>
+<li>computation, disk, network?</li>
+<li>75ms is enormous for a write in a DB</li>
+</ul>
+
+<h1>6.824 notes</h1>
+
 <p>Brian F. Cooper, Raghu Ramakrishnan, Utkarsh Srivastava, Adam
 Silberstein, Philip Bohannon, Hans-Arno Jacobsen, Nick Puz, Daniel
 Weaver and Ramana Yerneni. PNUTS: Yahoo!'s Hosted Data Serving
@@ -440,6 +684,7 @@ or if Alice does the updates from different regions</li>
 </ul></li>
 <li>we don't see that in Figure 3
 <ul>
+<li>apparently their clients were not able to generate too much load</li>
 <li>end of 5.3 says clients too slow</li>
 <li>at >= 75 ms/op, 300 clients -> about 4000/sec</li>
 </ul></li>

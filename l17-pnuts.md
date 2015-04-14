@@ -5,6 +5,203 @@
 6.824 [course website](http://nil.csail.mit.edu/6.824/2015/schedule.html) from 
 Spring 2015.
 
+PNUTS
+=====
+
+ - a solution to the same problem Spanner and memcached solved
+ - PNUTS is a more-principled designed than the memcache Facebook design
+   + "it was actually designed"
+ - make reads fast
+ - upside: web applications are able to do fast local reads due to replication
+ - downside: writes will be slow, because they need to be replicated
+ - because writes have to be distributed to all the regions, there will
+   be a fundamental delay between when writes happen and when the updates
+   actually propagate
+   + `=>` potential for stale reads
+ - if there's data that could be updated by concurrent clients, there will
+   be a problem with multiple writes
+   + need all regions to see our writes in the same order
+
+Diagram:
+
+    Region R1                        Region R2
+    ---------                        ---------
+
+     W1 Mesage broker                 W1 Message broker
+     W2     (replicated)              W2     (replicated)
+     W3                               W3
+     ..         Tablet controller     ..         Tablet controller
+                    (replicated)                     (replicated)
+        
+        Router1 Router2 ...              Router1 Router2 ...     
+
+        SU1 SU2 SU3 ...                  SU1 SU2 SU3 ...
+
+        
+ - each table in a region is partitioned among storage units (SUs)
+ - each SU has a disk
+ - routers know the partitioning?
+ - each region also has its own set of webservers
+
+Updates
+-------
+
+ - each record in PNUTS has its own master region through which all writes have
+   to go
+   + different than memcache at facebook, they had a master region for _all_
+     records
+   + in PNUTS every record has a different master
+   + Note: a record is just a row in a table (and has an extra field that
+     stores its master)
+ - updating records that are in regions far away from the user will take longer
+   of course
+ - how does the webserver know where to send the update?
+   + contact one of the routers
+   + router looks at the key, knows it's stored in say SU3
+   + find out from SU3 that a different region `r2` has the master copy
+     - doesn't know which SU at `r2` the record is at
+   + contact one of the routers in `r2`
+   + router tells you the SU to store it at
+   + the SU then needs to send out the update to all the other regions
+   + the SU sends the update to the message brokers
+     - not clear if SU applies the update to its own disk before
+   + the message broker writes a copy of the update to the disk
+     because it is _committing_ to actually sending the update everywhere
+     - important because we don't want a failed server to result in partially 
+       propagating the update
+   + the MB will send it out to other MBs at other sites 
+   + somehow the web app needs to find out that the write completes
+     - not clear who sends the ACK back
+     - seems that the MB replies back to the webserver app as soon as it 
+       commits the update to the disk
+   + asynchronous writes because, from POV of webapp, write is done when MB has
+     written it to its disk
+   + why isn't the MB a bottleneck? It has to write a lot of stuff:
+     - different applications have a different message broker
+     - MB may be able to do much more batching of the writes
+     - maybe also MB writes are also less complex than normal database writes
+       where you have to modify Btrees, maybe go through a file system, etc.
+   + because they funnel all the writes through some MB they get some 
+     semantics for writes
+
+Write semantics
+---------------
+
+### Write order to single records
+
+    Name        Where       What
+    ----        -----       ----
+    Alice       home        asleep
+    Bob         
+
+ - Alice's application says `write(what=awake)`
+   + write goes through PNUTS
+ - Alice's application says `write(where=work)`
+   + write goes through PNUTS
+ - useful semantics given by PNUTS
+   + other people in different regions might see
+     - alice at home asleep
+     - alice at home awake
+     - alice at work awake
+   + other people won't see a view of the record inconsistent with the order of
+     the writes
+     - alice at work asleep
+   + kind of the main consistency semantics provided by PNUTS
+   + a result of sequencing the writes through the MBs
+   + paper calls this _per-record timeline consistency_
+   + note that their model restricts them to only have transactions on a 
+     single record basis
+
+### When would you care about stale data?
+ 
+ - after you added something to your shopping cart, you would expect to see it
+   there
+
+Reads vs. staleness
+
+        read-any(key) -> fast read, just executes the read on the SU and does
+                       not wait for any writes to propagate
+
+        read-critical(key, ver) -> returns the read record where ver(record) >= ver
+         - useful for reading your own writes
+         - true when you have one webpage in a single tab
+         - if you update your shopping cart in one tab, then the other tab
+           will not be aware of that version number from the first tab
+
+        read-latest(key) -> will always go to the master copy and read the latest
+                          data there
+
+### Writes, atomic updates
+
+Example: increment a counter in a record
+    
+        test-and-set-write(ver, key, newvalue) -> always gets sent to the master
+            region for the key. look at the version and if it matches provided
+            one then update the record with the new value
+            
+            // implementing v[k]++
+            while true:
+                (x, v) = read-latest(k)
+                if test-and-set-write(k, v, x+1)
+                    break
+
+Question of the day
+-------------------
+
+Alice comes back from spring break and she:
+
+ - removes her mom from her ACL
+ - posts spring break photos
+
+Can her mom see her photos due to out-of-order writes?
+
+If Alice has all the photos her mom can see in a single record, then no.
+
+    Alice   |   ACL     | List of photos
+    -------- ----------- ----------------
+                mom         p7, p99
+
+Assuming the code her mom is executing reads the full record (ACL + photos) when
+doing the check, and doesn't first read the ACL, wait a while and then read
+the photos
+
+Failures
+--------
+
+If webapp server fails in the middle of doing a bunch of writes, then only
+partial info would have been written to PNUTS, possibly leading to corruption.
+
+ - no transactions for multiple writes
+
+If SU crashes and reboots, it can recover from disk and MB can keep retrying it
+
+What happens when SU loses its disk? It needs to recover the data.
+
+ - the paper says the SU will clone its data from a SU from another region
+   + main challenge is that updates are being sent by MBs to records that
+     are being copied
+   + either updates go to source of copy, or destination of copy remembers the
+     update
+   + ultimately they both need to have the update in the end
+
+Performance
+-----------
+
+Evaluation mostly focuses on latency and not on throughput. Maybe this is
+specific to their needs.
+
+Not clear how they can support millions of users with MBs that can only do
+hundreds of writes per second.
+
+Why is it taking them 75ms to do a local update, where everyone is in the same
+region?
+ 
+ - computation, disk, network?
+ - 75ms is enormous for a write in a DB
+
+6.824 notes
+===========
+
 Brian F. Cooper, Raghu Ramakrishnan, Utkarsh Srivastava, Adam
 Silberstein, Philip Bohannon, Hans-Arno Jacobsen, Nick Puz, Daniel
 Weaver and Ramana Yerneni. PNUTS: Yahoo!'s Hosted Data Serving
@@ -303,6 +500,7 @@ But only 33 ms (not 75) for "ordered table" (MySQL/Innodb)
  - blow-up should be near max capacity of h/w
    + e.g. # disk arms / seek time
  - we don't see that in Figure 3
+   + apparently their clients were not able to generate too much load
    + end of 5.3 says clients too slow
    + at >= 75 ms/op, 300 clients -> about 4000/sec
  - text says max possible rate was about 3000/second
