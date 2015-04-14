@@ -510,14 +510,21 @@ or if Alice does the updates from different regions</li>
 </ul></li>
 </ul>
 
-<p>What if we wanted to do bank transfers?
- - from one account (record) to another
- - can <code>t-a-s-w</code> be used for this?
- - multi-record updates are not atomic
-   + other readers can see intermediate state
-   + other writers are not locked out
- - multi-record reads are not atomic
-   + might read one account before xfer, other account after xfer</p>
+<p>What if we wanted to do bank transfers?</p>
+
+<ul>
+<li>from one account (record) to another</li>
+<li>can <code>t-a-s-w</code> be used for this?</li>
+<li>multi-record updates are not atomic
+<ul>
+<li>other readers can see intermediate state</li>
+<li>other writers are not locked out</li>
+</ul></li>
+<li>multi-record reads are not atomic
+<ul>
+<li>might read one account before xfer, other account after xfer</li>
+</ul></li>
+</ul>
 
 <p>Is lack of general transactions a problem for web applications?</p>
 

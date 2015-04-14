@@ -386,6 +386,7 @@ How to change record's master if no failures?
    + it will reject them, app retries and finds new master?
 
 What if we wanted to do bank transfers?
+
  - from one account (record) to another
  - can `t-a-s-w` be used for this?
  - multi-record updates are not atomic
