@@ -1,0 +1,189 @@
+<h1>6.824 2015 Lecture 18: Amazon's Dynamo keystore</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the
+6.824 <a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from 
+Spring 2015.</p>
+
+<h2>Dynamo</h2>
+
+<ul>
+<li>eventually consistent</li>
+<li>considerably less consistent than PNUTS or Spanner</li>
+<li>successful open source projects like Cassandra that have built upon the
+ideas of Dynamo</li>
+</ul>
+
+<h2>Design</h2>
+
+<ul>
+<li>really worried about their service level agreements (SLA)
+<ul>
+<li>internal SLAs, say between webserver and storage system</li>
+</ul></li>
+<li>worried about <em>worst-case</em> perf., not average perf.</li>
+<li>they want 99.9th percentile of delay <code>&lt; 300ms</code>
+<ul>
+<li>not very clear how this requirement worked itself in the design</li>
+<li>what choices were made to satisfy this?</li>
+</ul></li>
+<li>supposed to deal w/ constant failures
+<ul>
+<li>entire data center offline</li>
+</ul></li>
+<li>they need the system to be always writeable
+<ul>
+<li><code>=&gt;</code> no single master</li>
+</ul></li>
+</ul>
+
+<p>Diagram:</p>
+
+<pre><code>Datacenter
+
+    Frontend            Dynamo server
+    server
+                        Dynamo server
+    Frontend
+    server              Dynamo server
+
+                        Dynamo server
+</code></pre>
+
+<ul>
+<li>Guess: amazon has quite a lot of data centers and no one of them are
+primary or backup, then even if a datacenter goes down only a small
+fraction of your system is down
+<ul>
+<li>much more natural to, instead of replicating every record everywhere, to
+just replicate it on 2 or 3 data centers</li>
+</ul></li>
+<li>design of Dynamo is not really data-center oriented</li>
+<li>difference from PNUTS is that there's nothing about locality in their design
+<ul>
+<li>they don't worry about it: no copy of data is made to be near every client</li>
+</ul></li>
+<li>they need the wide area network to work really well</li>
+</ul>
+
+<h2>Details</h2>
+
+<ul>
+<li>always writeable <code>=&gt;</code> no single master <code>=&gt;</code> different puts on different
+servers <code>=&gt;</code> conflicting updates</li>
+<li>where should puts go and where should gets go so that they are likely to see
+data written by puts</li>
+</ul>
+
+<h3>Consistent hashing</h3>
+
+<ul>
+<li>you hash the key and it tells you what server to put/get it from</li>
+<li>hash output space is a ring/circle</li>
+<li>every key's hash is a point on this circle</li>
+<li>every node's hash is also a point</li>
+<li><code>=&gt;</code> a key will be between nodes or on a node in the circle</li>
+<li>node closest to key on the circle (clockwise) is the key's <em>coordinator</em></li>
+<li>if key is replicated <code>N</code> times, then the <code>N</code> successor nodes (clockwise)
+after the key store the key</li>
+<li>even with random choice of node IDs, consistent hashing doesn't uniformly
+spread the keys across nodes
+<ul>
+<li>the # of keys on a node is proportional to the gap between that node
+and its predecessor</li>
+<li>the distribution of gaps is pretty wide</li>
+</ul></li>
+<li>to make up for this, virtual nodes are used
+<ul>
+<li>each physical node is made up of a certain # of virtual nodes, proportional
+to the perf/capacity of the physical node</li>
+</ul></li>
+</ul>
+
+<p>Preference lists:</p>
+
+<ul>
+<li>suppose you have nodes A, B, C, D, E, F and key <code>k</code> that hashes before node A</li>
+<li>this key <code>k</code> should have 3 copies stored at A, B and C, if <code>N = 3</code></li>
+<li>request could go to the first node A, which could be down
+<ul>
+<li>or it could go to the first node A, which would try to replicate 
+it on node B and C, which could be down</li>
+<li><code>=&gt;</code> this first node would replicate on nodes D and E</li>
+<li><code>=&gt;</code> more than <code>N</code> nodes that could have the data</li>
+<li><code>=&gt;</code> remember all these nodes in a <em>preference list</em></li>
+</ul></li>
+<li>request for <code>k</code> goes to the first node in the preference list</li>
+<li>that node acts as a coordinator for the request and reads/writes the key
+on all other nodes</li>
+<li>sloppy quorums, 
+<ul>
+<li><code>N</code> the # of nodes the coordinator sends the request to</li>
+<li><code>R</code> the # of nodes the coordinator waits for data to come back on a get</li>
+<li><code>W</code> the # of nodes the coordinator waits for data to write on on a put</li>
+</ul></li>
+<li>if there are no failures, the coordinator kind of acts like a master</li>
+<li>if there are failures the sloppy quorum makes sure data is persisted, but
+inconsistencies can be created </li>
+<li>Trouble: because there aren't any real quorums, gets can miss the most recent
+puts</li>
+<li>you can have nodes A, B, C store some put on state data, an nodes D, E, F
+store another put on data
+<ul>
+<li>the coordinator among D, E, F knows the data is out-of-place and stores
+a flag to indicate it should be passed to A, B, C (<em>hinted hand-off</em>)</li>
+</ul></li>
+</ul>
+
+<h2>Conflicts</h2>
+
+<ul>
+<li>figure 3 in the paper</li>
+<li>when there are 2 conflicting versions, client code has to be able to 
+reconcile them</li>
+<li>dynamo uses version vectors just like <a href="l11-ficus.html">Ficus</a>
+<ul>
+<li><code>[a: 1] -&gt; [a: 1, b: 3]</code></li>
+<li><code>[a: 1] -&gt; [a: 1, c: 3]</code></li>
+<li><code>[a:1, b:3, c: 0]</code> and <code>[a:1, b:0, c:3]</code> conflicts</li>
+</ul></li>
+<li>Dynamo is weaker than Bayou</li>
+<li>both have a story for how to reconcile conflicted version
+<ul>
+<li>In dynamo we just have the two conflicting pieces of data, but we don't have
+the ops that were applied to the state (like remove/add smth from shopping cart)</li>
+<li>Bayou has the log of the ops</li>
+</ul></li>
+<li>PNUTS had atomic operation support like a <code>test-and-set-write</code> op
+<ul>
+<li>nothing like that in Dynamo</li>
+<li>the only way to do that in Dynamo is to be able to merge two conflicting 
+versions</li>
+</ul></li>
+</ul>
+
+<h2>Performance</h2>
+
+<ul>
+<li><em>Question to always ask about version vectors:</em> What happens when the version
+vectors get too large?
+<ul>
+<li>they delete entries for nodes that have been modified a long time ago
+<ul>
+<li><code>v1 = [a:1, b:7] -&gt; v1' = [b:7]</code></li>
+<li>what can go wrong? if <code>[b:7]</code> is updated to <code>v2 = [b:8]</code> then
+<code>v2</code> will conflict with <code>v1</code>, even though it was derived directly from
+it, so the application will get some <em>false</em> merges</li>
+</ul></li>
+</ul></li>
+<li>they like that they can adjust <code>N, R, W</code> to get different trade-offs 
+<ul>
+<li>standard <code>3,2,2</code></li>
+<li><code>3, 3, 1 -&gt;</code> write quickly but not very durably, reads are rare</li>
+<li><code>3, 1, 3 -&gt;</code> writes are slow, but reads are quite fast</li>
+</ul></li>
+<li>the average delays are 5-10ms, much smaller than PNUTS or memcached
+<ul>
+<li>too small relative to speed-of-light across datacenters</li>
+<li>but not clear where the data centers were, and what the workloads were</li>
+</ul></li>
+</ul>

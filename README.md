@@ -23,7 +23,8 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 14: **Spark** [_guest lecture_](l14-spark.html) by Matei Zaharia: Resilient Distributed Datasets, Spark
  * Lecture 15: **Spanner** [_guest lecture_](l15-spanner.html) by Wilson Hsieh, Google: Spanner, distributed database, clock skew
  * Lecture 16: [Memcache at Facebook](l16-memcached.html): web app scalability, look-aside caches, Memcache
- * Lecture 17: [PNUTS Yahoo!](l17-pnuts.html): distributed database
+ * Lecture 17: [PNUTS Yahoo!](l17-pnuts.html): distributed key-value store, atomic writes
+ * Lecture 18: [Dynamo](l18-dynamo.html): distributed key-value store, eventual consistency
 
 Papers
 ------
