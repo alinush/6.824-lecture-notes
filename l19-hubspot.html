@@ -1,0 +1,173 @@
+<h1>6.824 2015 Lecture 19: HubSpot</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the
+6.824 <a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from 
+Spring 2015.</p>
+
+<h2>Distributed systems in the real world</h2>
+
+<p>Who builds distributed systems:</p>
+
+<ul>
+<li>SaaS market
+<ul>
+<li>Startups: CustomMade, Instagram, HubSpot</li>
+<li>Mature: Akamai, Facebook, Twitter</li>
+</ul></li>
+<li>Enterprise market
+<ul>
+<li>Startup: Basho (Riak), Infinio, Hadapt</li>
+<li>Mature: VMWare, Vertica</li>
+</ul></li>
+<li>...and graduate students</li>
+</ul>
+
+<p>High-level components:</p>
+
+<ul>
+<li>front-end: load balancing routers</li>
+<li>handlers, caching, storage, business services</li>
+<li>infra-services: logging, updates, authentication</li>
+</ul>
+
+<p>Low-level components:</p>
+
+<ul>
+<li>RPCs (semantics, failure)</li>
+<li>coordination (consensus, Paxos)</li>
+<li>persistence (serialization semantics)</li>
+<li>caching</li>
+<li>abstractions (queues, jobs, workflows)</li>
+</ul>
+
+<h2>Building the thing</h2>
+
+<p>Business needs will affect scale and architecture</p>
+
+<ul>
+<li>dating website core data: OkCupid uses 2 beefy database servers</li>
+<li>analytics distributed DB: Vertica/Netezza clusters have around 100 nodes</li>
+<li>mid-size SaaS company: HubSpot uses around 100 single-node DBs or around
+10 node HBase clusters
+<ul>
+<li>MySQL mostly</li>
+</ul></li>
+<li>Akamai, Facebook, Amazon: tens of thousands of machines</li>
+</ul>
+
+<p>Small SaaS startup:</p>
+
+<ul>
+<li>early on the best thing is to figure out if you have a good idea that people
+would buy</li>
+<li>typically use a platform like Heroku, Google App Engine, AWS, Joyent, CloudFoundry</li>
+</ul>
+
+<p>Midsized SaaS:</p>
+
+<ul>
+<li>need more control than what PaaS offers</li>
+<li>scale may enable you to build better solutions more cheaply</li>
+<li>open source solutions can help you</li>
+</ul>
+
+<p>Mature SaaS:</p>
+
+<ul>
+<li><a href="http://aphyr.com/tags/jepsen">Jepsen tool</a></li>
+<li>"Ensure your design works if scale changes by 10x or 20x; the right solution
+for x often not optimal for 100x", Jeff Dean</li>
+</ul>
+
+<p>How to think about your design:</p>
+
+<ul>
+<li>understand what your system needs to do and the semantics</li>
+<li>understand workload scale then estimate (L2 access time, network latency) and
+plan to understand performance</li>
+</ul>
+
+<h2>Running the thing</h2>
+
+<ul>
+<li>"telemetry beats event logging"
+<ul>
+<li>logs can be hard to understand: getting a good story out is difficult</li>
+</ul></li>
+<li>logging: first line of defense, doesn't scale well
+<ul>
+<li>logs on different machines</li>
+<li>what if timestamps are useless because clocks are not synced</li>
+<li>lots of tools around logging</li>
+<li>having log data in queryable format tends to be very useful </li>
+</ul></li>
+<li>monitoring, telemetry, alerting
+<ul>
+<li>annotate code with timing and counting events</li>
+<li>measure how big a memory queue is or how long a request takes and
+you can count it</li>
+<li>can do telemetry at multiple granularities so we can break long requests
+into smaller pieces and pinpoint problems</li>
+</ul></li>
+</ul>
+
+<h2>Management: command and control</h2>
+
+<ul>
+<li>in classroom settings you don't have to set up a bunch of machines</li>
+<li>as your business scales new machines need to be set up => must automate</li>
+<li>separate configuration from app</li>
+<li>HubSpot uses a ZooKeeper like system that allows apps to get config values</li>
+<li>Maven for dependencies in Java</li>
+<li>Jenkins for continuous integration testing</li>
+</ul>
+
+<h2>Testing</h2>
+
+<ul>
+<li>automated testing makes it easy to verify newly introduced changes to your code</li>
+<li>UI testing can be a little harder (simulate clicks, different layout in different browsers)
+<ul>
+<li>front end changes => must change tests?</li>
+</ul></li>
+</ul>
+
+<h2>Teams</h2>
+
+<ul>
+<li>people: how do you get together and build the thing</li>
+<li>analogy: software engineering process is sort of like a distributed system
+with unreliable components.
+<ul>
+<li>somehow must build reliable software on a reliable schedule</li>
+</ul></li>
+<li>gotta take care of your people: culture has to be amenable to people growing,
+learning and failing</li>
+</ul>
+
+<h2>Process</h2>
+
+<ul>
+<li>waterfall: big design upfront and then implement it</li>
+<li>agile/scrum: don't know the whole solution, need to iterate on designs</li>
+<li>kanban:</li>
+<li>lean:</li>
+</ul>
+
+<h2>Questions</h2>
+
+<ul>
+<li>making a big change on fast changing code base
+<ul>
+<li>if you branch and then merge your changes, chances are the codebase has
+changed drastically</li>
+<li>you can try to have two different branches deployed such that the new
+branch can be tested in production</li>
+</ul></li>
+<li>culture changes with growth
+<ul>
+<li>need to pay attention to culture and happiness of employees</li>
+<li>very important to measure happiness</li>
+<li>having small teams might help because people can own projects</li>
+</ul></li>
+</ul>
