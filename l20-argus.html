@@ -1,4 +1,252 @@
-6.824 2015 Lecture 20: Two-Phase Commmit
+<h1>6.824 2015 Lecture 20: Argus</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the
+6.824 <a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from 
+Spring 2015.</p>
+
+<h2>Atomic commit: two-phase commit</h2>
+
+<ul>
+<li>how to use two-phase commit for distributed transactions</li>
+<li>Argus</li>
+</ul>
+
+<p>You have a bunch of computers that do different things (not replicas). Like
+two computers, one stores events for people in A-L, another for people in M-Z.
+If you want to create an event for Alice and Mike you need to interact with
+both servers and make sure that the event is either created on both or on 
+neither.</p>
+
+<p>The challenges are <em>crashes</em> and <em>network failures</em> which inject ambiguities (
+not responding cause of crash or network failure?)</p>
+
+<p>In Ivy and TreadMarks if one of the machines crashed it had no way to recover.
+We also saw MapReduce and Spark which had a story for crash recovery.</p>
+
+<p>Code:</p>
+
+<pre><code>schedule(u1 user, u2 user, t time):
+    ok1 = reserve(u1, t)    # reserve for the 1st user
+    ok2 = reserve(u2, t)    # reserve for the 2nd user
+
+    # Tricky: if the 1st reserve succeeded and the 2nd didn't =&gt; trouble
+    # We'd like to deal with this in the following way:
+
+    if ok1 and ok2
+        commit
+    else
+        abort
+
+    # One bad way to make this work is to let the servers chit-chat and
+    # make sure they both committed.
+    # At no stage in a transaction like this can the servers finish
+    #   - S1: I'll do it if you do it
+    #   - S2: I'll do it if you do it
+    #   - S1: I'll do it if you do it
+    #   - S2: I'll do it if you do it
+    # (sounds like the two generals problem?)
+</code></pre>
+
+<h3>Idea 1: tentative changes</h3>
+
+<pre><code>reserve(u user, t time):
+    if u[t] = free          # if user's calendar is free at time t
+        tent[t] = taken     # ...then tenatively schedule
+commit:
+    copy tent[t] to u[t]
+abort:
+    discard tent[t]
+</code></pre>
+
+<h3>Idea 2: single machine/entity (transaction coordinator) decides</h3>
+
+<pre><code>client           TC      A       B
+    \--------------------&gt;
+    \----------------------------&gt;
+                         |       |
+    &lt;--------------------/       |
+    &lt;----------------------------/
+                    ------------
+    ----- GO ----&gt; |            |
+                 | |            |
+    &lt;------------/ |            |
+                    ------------
+</code></pre>
+
+<p>Properties:</p>
+
+<ul>
+<li>state: unknown, committed, aborted</li>
+<li>if any thinks "committed", then none think "aborted"</li>
+<li>if any think "aborted", then none think "committed"</li>
+</ul>
+
+<h2>Two-phase commit (2PC)</h2>
+
+<p>Used frequently in real distributed databases.</p>
+
+<pre><code>client          TC          A           B
+                    .
+                    .
+                    .
+    ---- GO ----&gt;                             --\
+                   prepare                      |
+                ------------&gt;                   |
+                ------------------------&gt;       | Phase 1
+                   yes/no   |           |       |
+                &lt;-----------/           |       |
+                &lt;-----------------------/     --/
+
+                   commit/abort
+                ------------&gt;                 --\
+                ------------------------&gt;       | Phase 2
+    commit/abort                                |
+  &lt;-------------                              --/
+</code></pre>
+
+<p><code>Prepare</code> asks "are you still alive and willing to commit this transaction?"</p>
+
+<ul>
+<li>servers may say no</li>
+<li>servers may be unreachable</li>
+</ul>
+
+<h3>Termination protocol</h3>
+
+<ul>
+<li>maybe the TC has a timeout while it's waiting for the yes/no response to 
+one or more prepare messages
+<ul>
+<li>at this point, it can abort the transaction, because no one has started
+a commit (since the TC did not send it, since it was waiting on yes/no)</li>
+</ul></li>
+<li>B times out while waiting for prepare message
+<ul>
+<li><code>=&gt;</code> B hasn't replied to prepare <code>=&gt;</code> TC hasn't sent commit to the 
+participants <code>=&gt;</code> TC can send abort</li>
+</ul></li>
+<li>B times out waiting for commit/abort after saying <em>no</em> to prepare
+<ul>
+<li><code>=&gt;</code> B can abort because it knows the TC will abort everyone </li>
+</ul></li>
+<li>B times out waiting for commit/abort after saying <em>yes</em> to prepare
+<ul>
+<li><code>=&gt;</code> it said yes so TC could have received <code>yes</code> for everyone else (or not)
+<code>=&gt;</code> outcome can be either commit or abort <code>=&gt;</code> B has to wait</li>
+<li>there are some lucky cases in which <code>B</code> could decide to abort/commit if 
+<code>A</code> tells it via another channel</li>
+</ul></li>
+</ul>
+
+<p>Does this waiting make 2PC impractical? People are split up?</p>
+
+<p>What about reboots? If one of the participants said yes to a prepare, it has to
+remember that across reboots or crashes, so that it can be able to finish the
+transaction (commit or abort).</p>
+
+<ul>
+<li>in the calendar example, it would also need to remember the tentative schedule
+in <code>tent[]</code></li>
+<li>extra note: since in the diagram the TC did not wait for ACKs on commit/abort
+the participants need to persist their locks around the transaction so that
+they don't do a subsequent transaction before this one is finished</li>
+</ul>
+
+<p>What happens if TC crashes in the middle of sending commits?</p>
+
+<ul>
+<li>it has to remember all committed/non-committed transactions</li>
+</ul>
+
+<p>Resemblance to Paxos?</p>
+
+<ul>
+<li>Paxos is a way to build highly available systems by replication (all servers
+have all data and are doing the same thing)
+<ul>
+<li>Paxos system can proceed even if some of the servers are down</li>
+</ul></li>
+<li>2PC you cannot make progress even if just one server is down
+<ul>
+<li>each server is doing a <em>different thing</em> (want every server to do its own
+part in a transaction)</li>
+</ul></li>
+<li>While 2PC helps a set of servers reach agreement, it it not fault tolerant
+or available (it cannot proceed when servers are down)</li>
+<li>You might think you can do the calendar scheduling with Paxos by having both
+servers agree on the schedule op. However, while agreeing on the op will work
+committing the op will not: what if one server's user is busy during the
+scheduled time, it cannot commit the op. While the other one might be able
+to. Paxos doesn't help solve that conflict.</li>
+</ul>
+
+<p>Atomic distributed transactions: write your transaction code without thinking
+about what other transactions could be going on</p>
+
+<p>Bank example:</p>
+
+<pre><code>T1:
+    addToBal(x, 1)
+    addToBal(y, -1)
+
+    # Need this to be a transaction to implement a transfer correctly
+
+T2:
+    tmp1 = getBal(x)
+    tmp2 = getBal(y)
+
+    print(tmp1, tmp2)
+
+    # We cannot have the execution of T1 interleave with the execution of
+    # T2. T2 had better see both addToBal calls or no addToBal calls from T1
+</code></pre>
+
+<p>This is called <em>serializability</em>: The effect of running a bunch of transactions
+is the same as if they were run in some sequential order (no interleaving allowed:
+exec first half of T1, exec first half of T2, finish second half of T1, finish T2).</p>
+
+<p>One way to implement transactions is to use locks for each data record that are
+acquired before a transaction begins operating on those records and holds them
+until it commits or aborts. This is called <strong>two-phase locking</strong>.</p>
+
+<p>Deadlock can occur if T1 acquires x and then y while T2 acquires y and then x.
+Database systems for instance have ways to deal with this::</p>
+
+<ul>
+<li>timeout on acquiring locks and retry</li>
+<li>only allow transactions to acquire locks in a certain order</li>
+<li>perform deadlock detection if single-machine setup</li>
+</ul>
+
+<p>Nobody ever likes to use 2PC.</p>
+
+<ul>
+<li>because of the waiting/blocking issue when a server times out waiting for
+a commit/abort after having said "no" to a prepare</li>
+</ul>
+
+<p>When participants acquire locks they are holding them across multiple RTTs 
+in the network because you have to wait for the commit message.</p>
+
+<h2>Argus</h2>
+
+<ul>
+<li>the cool thing is that it attempts to absorb as much of the nitty-gritty junk
+of distributed systems programming inside the language</li>
+<li>the desire was to have a clean story for handling RPC failures </li>
+<li>Argus sets up a framework where RPC failures can be handled cleanly
+<ul>
+<li>does all the bookkeeping required to rollback the transactions</li>
+</ul></li>
+<li>Argus has to know about the data in order to be able to rollback
+<ul>
+<li>it needs to create tentative updates and so on </li>
+</ul></li>
+</ul>
+
+<h1>6.824 notes</h1>
+
+<pre><code>6.824 2015 Lecture 20: Two-Phase Commmit
 
 Topics:
   distributed commit, two-phase commit
@@ -78,7 +326,7 @@ Two-phase commit without failures:
   client sends "go" to TC
   TC sends "prepare" messages to A and B.
   A and B respond, saying whether they're willing to commit.
-    Respond "yes" if haven't crashed, timed out, &c.
+    Respond "yes" if haven't crashed, timed out, &amp;c.
   If both say "yes", TC sends "commit" messages.
   If either says "no", TC sends "abort" messages.
   A/B "decide to commit" if they get a commit message.
@@ -93,16 +341,16 @@ What about failures?
   Network broken/lossy
   Server crashes
   Both visible as timeout when expecting a message.
-    
+
 Where do hosts wait for messages?
   1) TC waits for yes/no.
   2) A and B wait for prepare and commit/abort.
 
 Termination protocol summary:
-  TC t/o for yes/no -> abort
-  B t/o for prepare, -> abort
-  B t/o for commit/abort, B voted no -> abort
-  B t/o for commit/abort, B voted yes -> block
+  TC t/o for yes/no -&gt; abort
+  B t/o for prepare, -&gt; abort
+  B t/o for commit/abort, B voted no -&gt; abort
+  B t/o for commit/abort, B voted yes -&gt; block
 
 TC timeout while waiting for yes/no from A/B.
   TC has not sent any "commit" messages.
@@ -171,7 +419,7 @@ Problem:
 The traditional approach is to provide "serializability"
   results should be as if transactions ran one at a time in some order
   either T1, then T2; or T2, then T1
-  
+
 Why serializability?
   it allows transaction code to ignore the possibility of concurrency
   just write the transaction to take system from one legal state to another
@@ -193,7 +441,7 @@ Why hold locks until after commit/abort?
     T1 could then execute between T2's get()s
     T2 would print 10,9
     but that is not a serializable execution: neither T1;T2 nor T2;T1
-  
+
 2PC perspective
   Used in sharded DBs when a transaction uses data on multiple shards
   But it has a bad reputation:
@@ -267,7 +515,7 @@ Look at bank example
   page 309 (and 306): bank transfer
 
 Points to notice
-  stable keyword (programmer never writes to disk &c)
+  stable keyword (programmer never writes to disk &amp;c)
   atomic keyword (programmer almost never locks/unlocks)
   enter topaction (in transfer)
   coenter (in transfer)
@@ -310,6 +558,7 @@ is Argus's language integration the right thing?
   i.e. persisting and locking language objects
   it looks very convenient (and it is)
   but it turns out to be even more valuable have relational tables
-    people like queries/joins/&c over tables, rows, columns
+    people like queries/joins/&amp;c over tables, rows, columns
     that is, people like a storage abstraction!
   maybe there is a better language-based scheme waiting to be found
+</code></pre>
