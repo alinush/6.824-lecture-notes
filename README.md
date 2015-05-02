@@ -25,6 +25,11 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 16: [Memcache at Facebook](l16-memcached.html): web app scalability, look-aside caches, Memcache
  * Lecture 17: [PNUTS Yahoo!](l17-pnuts.html): distributed key-value store, atomic writes
  * Lecture 18: [Dynamo](l18-dynamo.html): distributed key-value store, eventual consistency
+ * Lecture 19: **HubSpot** [_guest lecture_](l19-hubspot.html)
+ * Lecture 20: [Two phase commit (2PC)](l20-argus.html): two-phase commit, Argus
+ * Lecture 21: Atomicity: Optimistic concurrency conrol
+ * Lecture 22: Peer-to-peer: Trackerless Bittorrent and DHTs
+ * Lecture 23: Peer-to-peer: Bitcoin
 
 Papers
 ------
