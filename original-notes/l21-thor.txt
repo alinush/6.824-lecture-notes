@@ -1,0 +1,266 @@
+6.824 2015 Lecture 21: Distributed Optimistic Concurency Control
+
+Paper: Efficient Optimistic Concurrency Control using Loosely
+Synchronized Clocks, by Adya, Gruber, Liskov and Maheshwari.
+
+Thor overview
+  [servers A-M N-Z, clients, app, per-client cache]
+  data sharded over servers
+  code runs in clients only (not like Argus)
+  clients r/w records from servers
+  clients cache data locally for fast access
+    on client cache miss, fetch from server
+
+Thor programs use transactions
+  multi-operation
+  serializable
+  want serializable of multi-operation transactions
+  transactions can 
+
+Transactions are tricky if clients cache data
+  writes will have to invalidatate other cached copies
+  how to cope with stale cached data?
+  how to cope with read-modify-write races?
+  could ask servers for lock on each record but that's slow
+    wrecks the whole point of fast local caching in clients
+
+Thor's answer: optimistic concurrency control (OCC)
+  just read and write the local copy
+    don't worry about other transactions until commit
+  on commit:
+    send read/write info to server for "validation"
+    validation decides if execution is OK to commit -- if serializable
+    abort otherwise
+  optimistic b/c we assume no conflicting concurrent transactions
+    if turns out to be true, fast!
+    if false, at least validation can detect
+
+What should validation do?
+  it looks at what happened during an execution
+  decides if there's a serial execution order that would have gotten
+    the same results as the actual execution
+  there are many OCC validation algorithms!
+    i will outline a few, leading up to Thor's
+
+Validate scheme #1
+  for now, imagine a single validation server
+  validation sees the read and write VALUES of a bunch
+    of transactions that want to commit
+  it also knows what's committed in the past
+  it must decide:
+    would the results be serializable if we let these
+      transactions commit?
+  so it must compare what transactions read/wrote with one or more
+    potential serial execution orders
+
+Validation example 1:
+  initially, x=0 y=0 z=0
+  T1: Rx0 Wx1
+  T2: Rz0 Wz9
+  T3: Ry1 Rx1
+  T4: Rx0 Wy1
+  validation needs to decide if this execution (reads, writes)
+    is equivalent to some serial order
+  validation can find order T4, T1, T3, T4; says yes to all
+    (really T2 can go anywhere)
+
+This is neat b/c transactions didn't need to lock!
+  so they could run quickly from cache
+  just one msg exchange w/ validator per transaction
+    not one locking exchange per record used
+  OCC excellent for T2 which didn't conflict with anything
+    we got lucky for T1 T3 T4, which do conflict
+
+Validation example 2:
+  initially, x=0 y=0
+  T1: Rx0 Wx1
+  T2: Rx0 Wy1
+  T3: Ry0 Rx1
+  values not consistent w/ any serial order!
+    T1 -> T3 (via x)
+    T3 -> T2 (via y)
+    T2 -> T1 (via x)
+    there's a cycle
+  perhaps T3 read a stale y=0 from cache
+    or T2 read a style x=0 from cache
+  validation must force one to abort
+    then others are OK to commit
+  e.g. abort T2
+    then T1, T3 is OK (but not T3, T1)
+
+How should client handle abort?
+  roll back the program (including writes to program variables)
+  re-run from start of transaction
+  hopefully won't be conflicts the second time
+  OCC best when few conflicts are few!
+
+Do we need to validate read-only transactions?
+  example:
+    initially x=0 y=0
+    T1: Wx1
+    T2: Rx1 Wy2
+    T3: Ry2 Rx0
+  i.e. T3 read a stale x=0 from its cache, hadn't yet seen invalidate.
+  need to validate in order to abort T3.
+  *other* OCC schemes can avoid validating read-only transactions
+    keep multiple versions -- but Thor and my schemes don't
+
+Is OCC better than locking?
+  only if there are few conflicts
+  OCC turns conflicts into aborts, must re-do from start
+  locking turns conflicts into waits
+  example: simultaneous increment
+    locking:
+      T1: Rx0 Wx1
+      T2: -------Rx1  Wx2
+    OCC:
+      T1: Rx0 Wx1
+      T2: Rx0 Wx1
+      fast but wrong; must abort one
+
+We really want *distributed* OCC validation
+  each storage server sees only xactions that use its data
+  each storage server validates just its part of the xaction
+  two-phase commit to check that they all say "yes"
+    only really commit if all relevant servers say "yes"
+
+Can we just distribute validation scheme #1?
+  imagine server S1 knows about x, server S2 knows about y
+  example 2 again
+    T1: Rx0 Wx1
+    T2: Rx0 Wy1
+    T3: Ry0 Rx1
+  S1 validates just x information:
+    T1: Rx0 Wx1
+    T2: Rx0
+    T3: Rx1
+    answer is "yes" (e.g. T2 T1 T3)
+  S2 validates just y information:
+    T2: Wy1
+    T3: Ry0
+    answer is "yes" (T3 T2)
+
+So simple distributed validation does not work
+  the validators must choose consistent orders!
+
+Validation scheme #2
+  Idea: client (or TC) chooses timestamp for each committing xaction
+    from loosely synchronized clocks, as in Thor
+  validation checks that reads and writes are consistent with TS order
+  solves distrib validation problem:
+    timestamps tell the validators the order to check
+    so they say "yes" to inconsistent orders
+
+Example 2 again, with timestamps:
+  T1@100: Rx0 Wx1
+  T2@110: Rx0 Wy1
+  T3@105: Ry0 Rx1
+  S1 validates just x information:
+    T1@100: Rx0 Wx1
+    T2@110: Rx0
+    T3@105: Rx1
+    timestamps say order must be T1, T3, T2
+    does not validate! T2 should have seen x=1
+  S2 validates just y information:
+    T2@110: Wy1
+    T3@105: Ry0
+    timstamps say order must be T3, T2
+    validates!
+  S1 says no, S2 says yes, two-phase commit coordinator will abort
+
+What have we given up by using timestamps?
+  example:
+    T1@100: Rx0 Wx1
+    T2@50: Rx1 Wx2
+  will abort, since TS says T2 comes first, so T1 should have seen x=2
+    but could have committed, since T1 then T2 works
+  this will happen if client clocks are too far off
+    if T1's client clock is ahead, or T2's behind:
+  so: requiring TS order aborts unnecessarily
+    b/c validation no longer *searching* for an order that works
+    instead merely *checking* that TS order consistent w/ reads, writes
+    we've given up some optimism by requiring TS order
+  maybe not a problem if clocks closely synched
+
+Problem with schemes so far:
+  commit messages carried *values*, which can be big
+  we don't really need the values, enough to see if
+    later xaction read earlier xaction's write
+
+Validation scheme #4
+  tag each DB record (and cached record) with TS of xation that last wrote it
+    i.e. we'll know a transaction read a stale value because
+      it has the wrong TS, even if we don't know the value
+  validation requests carry TS of each record read
+
+Our example for scheme #4:
+  all values start with timestamp 0
+  T1@100: Rx@0 Wx
+  T2@110: Rx@0 Wy
+  T3@105: Ry@0 Rx@100
+  note:
+    reads have timestamp that was in read record, not value
+    writes don't include either value or timestamp
+  S1 validates just x information:
+    orders the transactions by timestamp:
+    T1@100: Rx@0 Wx
+    T3@105: Rx@100
+    T2@110: Rx@0
+    the question: does each read see the most recent write?
+      T3 is ok, but T2 is not
+  S2 validates just y information:
+    again, sort by TS, check each read saw latest write:
+    T3@105: Ry@0
+    T2@110: Wy
+    this does validate
+
+what have we give up by thinking about version #s rather than values?
+  maybe version numbers are different but values are the same
+  e.g.
+    T1@100: Rx0 Wx1
+    T2@110: Rx1 Wx2
+    T3@120: Rx2 Wx1
+    T4@130: Rx1@105
+  timestamps say we should abort T4 b/c read a stale version
+    should have read T3's write
+  but we know T4 read the correct value -- x=1
+
+Problem: per-record timestamp might use too much storage space
+  it's probably a reasonable approach, but Thor wants to do better
+  
+Validation scheme #5
+  Thor's invalidation scheme: no timestamps on records
+  how can validation detect that a transaction read stale data?
+  it read stale data b/c earlier xaction's invalidation hadn't yet arrived!
+  so server can keep track of outstanding invalidation msgs
+    "invalid set" -- one per client
+    abort if committing xaction read record in client's invalid set
+
+When a transaction finally commits (2nd phase of 2PC)
+  server sends invalidation msgs to clients with copies of written keys
+  adds clients and keys to invalid set
+  deletes from invalid set after receiving client ACK of invalidation
+
+Example use of invalid set
+  [timeline]
+  Server:
+    VQ: T1@100 Wx
+    T1 committed, x in client's invalid set
+      server has sent invalidation message to client
+  Client:
+    T2@105 ... Rx ... 2PC commit point
+    imagine that client acts as 2PC coordinator
+
+Three cases:
+  1. invalidation arrives before T2 reads
+     Rx will miss in client cache, read from data from server
+     client will (probably) return ACK before T2 commits
+     server won't abort T2
+  2. invalidation arrives after T2 reads, before commit point
+     client will abort T2 in response to invalidation
+  3. invalidation arrives after 2PC commit point
+     i.e. after all servers replied to prepare
+     this means the client was still in the invalid set when
+       the server tried to validate the transaction
+     so the server aborted, so the client will abort too
+  so: Thor's validation detects stale reads w/o timestamp on each record
