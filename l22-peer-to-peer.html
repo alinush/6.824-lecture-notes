@@ -1,0 +1,265 @@
+<h1>6.824 2015 Lecture 22: Peer to peer system</h1>
+
+<p><strong>Note:</strong> These lecture notes were slightly modified from the ones posted on the
+6.824 <a href="http://nil.csail.mit.edu/6.824/2015/schedule.html">course website</a> from 
+Spring 2015.</p>
+
+<h2>P2P systems</h2>
+
+<ul>
+<li>Today: look at peer-to-peer (P2P) systems like Bittorrent and Chord</li>
+<li>classic implementation of file sharing services: users talk to a centralized 
+server to download file</li>
+<li>it should be possible for users to talk to each other to get files</li>
+<li>the peer-to-peer dream: no centralized components, just built out of people's
+computers</li>
+</ul>
+
+<h2>Why P2P?</h2>
+
+<ul>
+<li><strong>(+)</strong> spreads the work of serving the files over a huge # of PCs</li>
+<li><strong>(+)</strong> might be easier to deploy than a centralized system
+<ul>
+<li>no one has to buy a centralized server with a lot of bandwidth and storage</li>
+</ul></li>
+<li><strong>(+)</strong> if you play your card rights, the # of resources should scale naturally
+with the # of users => less chance of overload</li>
+<li><strong>(+)</strong> no centralized server => less chance to fail (harder to attack with
+DoS)</li>
+<li><code>=&gt;</code> so many advantages! Why does anyone build non-P2P systems?</li>
+<li><strong>(-)</strong> it takes a sophisticated design to lookup a file in a system of a 
+million users <code>&lt;=&gt;</code> finding stuff is hard (can't just ask a DB)</li>
+<li><strong>(-)</strong> user computers are not as reliable as servers in a datacenter. users
+take their computers offline, etc.</li>
+<li><strong>(-)</strong> some P2P systems are open (BitTorrent) but some are closed, where only 
+say Amazon's computer are participating in this scheme (sort of like Dynamo).
+<ul>
+<li><code>=&gt;</code> in open systems, there will be malicious users <code>=&gt;</code> easy to attack</li>
+</ul></li>
+</ul>
+
+<p>The result is that P2P software has certain niches that you find it in</p>
+
+<ul>
+<li>systems where there's a lot of data, like online video services</li>
+<li>chat systems</li>
+<li>in settings where having a central server is not <em>natural</em> like Bitcoin 
+<ul>
+<li>it would be nice for DNS to be decentralized for instance</li>
+</ul></li>
+<li><em>seems</em> like the dominant use has been to serve illegal files</li>
+</ul>
+
+<h2>BitTorrent</h2>
+
+<h3>Pre-DHT BitTorrent</h3>
+
+<p>Diagram:</p>
+
+<pre><code> ---        ---
+| W |      | T |
+ ---        ---
+/\         /\
+| click on /  .torrent file
+\         /
+ ---/----        ---  
+| C |  &lt;------&gt; | C |
+ ---             ---
+</code></pre>
+
+<ul>
+<li>client goes to a webserver and downloads a .torrent file</li>
+<li>torrent file stores the hash of the data and the address of a tracker</li>
+<li>the tracker keeps a record of all the clients who have downloaded this 
+file and maybe still have it and maybe would be willing to server it to
+other clients</li>
+<li>client contacts tracker, asks about other clients</li>
+<li>the huge gain here is that the file is transfered between the clients 
+directly, and the webserver and tracker aren't incurring too much cost</li>
+</ul>
+
+<h3>DHT-based BitTorrent (Trackerless torrents)</h3>
+
+<ul>
+<li>tracker is a single point of failure</li>
+<li>can fix this by replicating them or having extra trackers</li>
+<li>the users who download the file also form a giant distributed key value
+store (a DHT)</li>
+<li>clients still have to talk to the original web server to get the <code>infohash</code>
+of the file it wants to download</li>
+<li>it uses it as a key to do a lookup in the DHT</li>
+<li>the values are IP addresses of other clients who have the files</li>
+<li>this really replaces the tracker</li>
+<li>how to find an entry node in the DHT? Maybe the client has some well known
+nodes hardcoded</li>
+<li><em>maybe</em> the DHT is more reliable and less vulnerable to legal (subpoena) and 
+technical attacks</li>
+<li>BitTorrent is fantastically popular: tens of millions of users <code>=&gt;</code> giant DHT,
+however, most torrents are backed by real trackers</li>
+</ul>
+
+<h2>How did DHTs start?</h2>
+
+<ul>
+<li>a bunch of research 15 years ago on how to build DHTs</li>
+<li>point was to harness the millions of computers on the Internet to provide
+something that was close to a database</li>
+<li>the interface is very simple: <code>Put(k, v), Get(k)</code>
+<ul>
+<li>hope is that puts are reflected in gets (after a while)</li>
+</ul></li>
+<li>in practice it is hard to build consistent systems</li>
+<li>little guarantees about availability of data and consistency
+<ul>
+<li>system does not guarantee to keep your data when you do a <code>Put()</code></li>
+</ul></li>
+<li>still difficult to build, even with these weak guarantees</li>
+</ul>
+
+<h2>DHT designs</h2>
+
+<ol>
+<li>Flood everyone with Get's when you want to get a key
+<ul>
+<li><code>=&gt;</code> system can't handle too much load</li>
+</ul></li>
+<li>Suppose everyone agreed to the whole list of nodes in the DHT. 
+<ul>
+<li>Then you can have some hashing convention that hashes a key to an exact node
+and lookups are efficient.</li>
+<li>Critical that all agree otherwise A sends put to X and B sends get to Y for the
+same key <code>k</code></li>
+<li>The real problem is that it's hard to keep tables up to date and
+accurate.</li>
+</ul></li>
+</ol>
+
+<p>What we want:</p>
+
+<ul>
+<li>We're looking for a system where each node only has to know about a few 
+other nodes.</li>
+<li>We don't want the node to send too many messages to do a lookup</li>
+<li>the rough approach that all DHT take is to define a global data structure
+that is layered across nodes</li>
+<li>Bad idea: organize all nodes as a binary tree, data is stored in leaf nodes
+such that lower keys are in the left most nodes
+<ul>
+<li>all traffic goes through root (bad) => if root goes down, partition</li>
+<li>how can we replace nodes that go down?</li>
+</ul></li>
+</ul>
+
+<h2>Chord</h2>
+
+<ul>
+<li>numbers in a circular ID space (like integers modulo p) from 0 to 2^160 - 1</li>
+<li>each node picks a random ID in this space as its node ID</li>
+<li>the keys have identifiers in this space, and we want the identifiers to have a 
+uniform distribution, because we use it to map the key to a node identifier 
+<code>=&gt;</code> use a hash on the actual keys to get their identifier</li>
+<li>the node responsible for a key is the first <em>closest</em> node to that key in
+a clockwise direction: known as its <strong>successor</strong>
+<ul>
+<li>closeness <code>= |node ID - key ID|</code></li>
+</ul></li>
+</ul>
+
+<p>Slow but correct scheme:</p>
+
+<ul>
+<li>through some sort of hocus-pocus, every node just has to know about its own
+successor (say, node 2's successor is node 18, etc)</li>
+<li>we can always do a lookup starting at every node simply by following these
+successor pointers
+<ul>
+<li>this is called <em>routing</em></li>
+<li>all about forwarding a lookup message to a node further one the ring</li>
+</ul></li>
+<li>this is slow, with millions of nodes could be sending millions of messages
+for a single lookup</li>
+<li>need time logarithmic in the total # of nodes in the DHT
+<code>=&gt;</code> each hop has to be able to compute the distance between it and any target key</li>
+<li>in Chord, every node has a <em>finger table</em> of 160 entries</li>
+<li>the finger table of node <code>n</code> has entry <code>i</code>:
+<ul>
+<li><code>f[i] = successor(n + 2^i)</code></li>
+<li><code>=&gt;</code> the 159th entry will point to some node <code>n + 2^159</code> roughly halfway across the ID
+space</li>
+</ul></li>
+<li>each hop is on the order of 50 milliseconds, if the hops are halfway around
+the world
+<ul>
+<li><code>=&gt;</code> around 1 second to go through 20 nodes <code>=&gt;</code> some applications might
+not take this well (BitTorrent is okay, because it only stores IPs in the
+DHT)</li>
+</ul></li>
+<li>when nodes join, they get a copy of the entry node's fingerprint
+<ul>
+<li>not accurate for the new node, but good enough</li>
+<li><code>=&gt;</code> have to correct the table <code>=&gt;</code> for the <code>i</code>th entry do a lookup for
+<code>n+2^i</code> and set <code>f[i]</code> to the address of the node that replied</li>
+</ul></li>
+<li>every lookup is likely to encounter a dead node and timeouts take a long time</li>
+<li>the churn in BitTorrent is quite high
+<ul>
+<li>10 million people participate this hour, the next hour there will be other
+10 million people <code>=&gt;</code> hard to keep finger table updated</li>
+</ul></li>
+<li><code>log n</code> lookup time is not that great</li>
+<li>finger tables are only used to speed up lookups</li>
+<li>each node must correctly know its successor for Chord to be correct
+<ul>
+<li>so that Gets by one node see the Puts by another node</li>
+</ul></li>
+<li>when a node first joins, it does a lookup on its own identifier to find 
+its successor
+<ul>
+<li><code>--&gt; 10 -- [new node 15] --&gt; 20 --&gt;</code></li>
+<li>15 sets its successor pointer to 20</li>
+<li>so far no one is doing lookups</li>
+<li>15 isn't really part of the system until 10 knows about it</li>
+<li>every node periodically asks its successor who they think their predecessor is
+<ul>
+<li><code>10: hey 20, who's your predecessor?</code></li>
+<li><code>20: my predecessor is 15</code></li>
+<li><code>10: oh, thought it was me, so let me set 15 as my successor then</code></li>
+<li><code>15: oh, hi 10, thanks for adding me as your sucessor, let me add you
+as my predecessor</code></li>
+<li>this is called stabilization</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<p>Example:</p>
+
+<pre><code>10 -&gt; 20
+
+12, 18 join
+
+10 -&gt; 20, 12-&gt;20, 18-&gt;20, 20-&gt;18
+
+10 -&gt; 18, 18-&gt;10, 18-&gt;20, 20-&gt;18, 12 -&gt;18
+
+10 -&gt; 18,18-&gt;20, 20-&gt;18, 12 -&gt;18, 18-&gt;12
+
+10 -&gt; 12, 12-&gt;10 12-&gt;18, 18-&gt;12, 18-&gt;20, 20-&gt;18
+</code></pre>
+
+<ul>
+<li>when a node gets a closer predecessor, it transfers keys that would be closer
+to its predecessor there</li>
+</ul>
+
+<p>If nodes fail, can we do lookups correctly?</p>
+
+<ul>
+<li>suppose an intermediate node fails in the lookup procedure, then the initiating
+node can simply pick another</li>
+<li>towards the end of the lookup process, finger tables are not used anymore. 
+instead successor pointers are followed <code>=&gt;</code> if a node fails then the lookup cannot
+proceed <code>=&gt;</code> nodes must remember successors of their successors to be able
+to proceed</li>
+<li>the probability of a partition occurring is low on the Internet</li>
+</ul>
