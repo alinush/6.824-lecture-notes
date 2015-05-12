@@ -28,8 +28,8 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 19: **HubSpot** [_guest lecture_](l19-hubspot.html)
  * Lecture 20: [Two phase commit (2PC)](l20-argus.html): two-phase commit, Argus
  * Lecture 21: [Optimistic concurrency control](l21-thor.html)
- * Lecture 22: [Peer-to-peer, trackerless Bittorrent and DHTs](l22-peer-to-peer.html)
- * Lecture 23: [Bitcoin](l23-bitcoin.html)
+ * Lecture 22: [Peer-to-peer, trackerless Bittorrent and DHTs](l22-peer-to-peer.html): Chord, routing
+ * Lecture 23: [Bitcoin](l23-bitcoin.html): verifiable public ledgers, proof-of-work, double spending
 
 Papers
 ------
