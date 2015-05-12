@@ -12,6 +12,12 @@ Distributed commit:
     "distributed transaction"
   Challenges: crashes and network failures
 
+We've seen the fundamental problem before
+  What to do if *part* of a distributed computation crashes?
+  IVY/Treadmarks had no answer
+  MR/Spark could re-execute *part* of computation, for big data
+  What about for small updates?
+
 Example:
   calendar system, each user has a calendar
   want to schedule meetings with multiple participants
@@ -227,23 +233,22 @@ Case study: Argus
 Argus's big ideas:
   Language support for distributed programs
     Very cool: language abstracts away ugly parts of distrib systems
-    Aimed at different servers doing different jobs, cooperating
-  Easy fault tolerance:
-    Transactional updates
+    Aimed at services interacting via RPC
+  Clean handling of RPC and server failure
+    Transactional updates via 2PC
     So crash results in entire transaction un-done, not partial update
   Easy persistence ("stable"):
     Ordinary variables automatically persisted to disk
     Automatic crash recovery
-  Easy concurrency:
-    Implicit locking of language objects
-  Easy RPC model:
-    Method calls transparently turned into RPCs
-    RPC failure largely hidden via transactions, two-phase commit
+  Easy concurrency control:
+    Multiple clients means multiple distributed transactions
+    Automatic locking of language objects
 
-We've seen the fundamental problem before
-  What to do if *part* of a distributed computation crashes?
-  IVY/Treadmarks had no answer
-  MR/Spark could re-execute *part* of computation, for big data
+The overall design story seems very sensible
+  Starting point: you want to handle RPC failures cleanly
+  Clean failure handling means Argus needs transactions
+  Transaction roll-back means Argus must manage program objects
+  Crash recovery means Argus must handle persisting program objects
 
 Picture
   "guardian" is like an RPC server
@@ -309,7 +314,12 @@ is transactions + RPC + 2PC a good design point?
 is Argus's language integration the right thing?
   i.e. persisting and locking language objects
   it looks very convenient (and it is)
-  but it turns out to be even more valuable have relational tables
-    people like queries/joins/&c over tables, rows, columns
-    that is, people like a storage abstraction!
+
+why didn't more systems pick up on Argus' language-based approach?
+  Java RMI is perhaps the closest in common use
+  perhaps people prefer to build distributed systems around data
+    not around RPC
+    e.g. big web sites are very storage-centric
+    database provides transactions, persistence, &c
+    tables, records, and queries are more powerful than Argus' data
   maybe there is a better language-based scheme waiting to be found

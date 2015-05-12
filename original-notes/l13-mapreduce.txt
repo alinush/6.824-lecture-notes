@@ -60,28 +60,29 @@ The main challenge: communication bottleneck
     net cross-section:        10 GB/sec
   Explain host link b/w vs net cross-section b/w
 
-How to cope with communication bottleneck
-  Locality: split storage and computation the same way, onto same machines
-    Because disk and RAM are faster than the network
-  Batching: move megabytes at a time, not e.g. little key/value puts/gets
-    Because network latency is a worse problem than network throughput
-  Programming: let the developer indicate how data should move between machines
-    Because the most powerful solutions lie with application structure
-    
-The big programming idea in MapReduce is the key-driven shuffle
-  Map function implicitly specifies what and where data is moved -- with keys
-  Programmer can control movement, but isn't burdened with details
-  Programs are pretty constrained to help with communication:
-    Map can only read the local split of input data, for locality and simplicity
-    Just one batch shuffle per computation
-    Reduce can only look at one key, for locality and simplicity
+What are the crucial design decisions in MapReduce?
+  Contrast to DSM (TreadMarks or IVY, or even put/get in key/value store):
+    They allow arbitrary random interaction among threads.
+    But: latency sensitive, poor throughput efficiency.
+    But: recovering from crashed compute server very hard;
+         probably need global checkpoint, since states are
+         intertwined.
+  Maps and Reduces work on local data -> reduced network communication.
+    For Map, split storage and computation in the same way, use local disk.
+  Maps and Reduces work on big batches of data -> no small latency-sensitive network messages.
+  Very little interaction:
+    Maps and Reduces can't interact with each other directly.
+    No interaction across phase boundaries.
+    -> Can re-execute single Map/Reduce independently, no need for e.g. global checkpoint.
+  Programmer can't directly cause network communication,
+    but has indirect control since Map specifies key.
 
 Where does MapReduce input come from?
   Input is striped+replicated over GFS in 64 MB chunks
   But in fact Map always reads from a local disk
     They run the Maps on the GFS server that holds the data
   Tradeoff:
-    Good: Map can read at disk speed, much faster than reading over net from GFS server
+    Good: Map reads at disk speed, much faster than over net from GFS server
     Bad: only two or three choices of where a given Map can run
          potential problem for load balance, stragglers
 
@@ -124,14 +125,14 @@ Will MR scale?
   Stragglers are a problem, if one machine is slow, or load imbalance
     Can't solve imbalance w/ more machines
   Start-up time is about a minute!!!
-    Can't reduce that no matter how many machines you buy (probably makes it worse)
+    Can't reduce w/ more machines (probably makes it worse)
   More machines -> more failures
 
 Now let's talk about fault tolerance
   The challenge: paper says one server failure per job!
   Too frequent for whole-job restart to be attractive
 
-The main idea: Map and Reduce are deterministic and functional,
+The main idea: Map and Reduce are deterministic, functional, and independent,
     so MapReduce can deal with failures by re-executing
   Often a choice:
     Re-execute big tasks, or
@@ -192,7 +193,7 @@ Figure 2 / Section 5.2
   One terabyte of input
   1800 machines
   Figure 2 x-axis is time, y-axis is input read rate
-  60 seconds of start-up time are *omitted*! (copying program, opening input files)
+  60 seconds start-up time *omitted*! (copying program, opening input files)
   Why does it take so long (60 seconds) to reach the peak rate?
   Why does it go up to 30,000 MB/s? Why not 3,000 or 300,000?
     That's 17 MB/sec per server.
@@ -206,14 +207,21 @@ Figure 3(a) / Section 5.3
     Why less than Figure 2's 30,000 MB/s? (writes disk)
     Why does read phase last abt 100 seconds?
   Middle graph -- Shuffle rate
-    How is shuffle able to start before Map phase finishes? (more map tasks than workers)
-    Why does it peak at 5,000 MB/s? (??? net cross-sec b/w abt 18 GB/s)
-    Why a gap, then starts again? (runs some Reduce tasks, then fetches more)
-    Why is the 2nd bump lower than first? (maybe competing w/ overlapped output writes)
+    How is shuffle able to start before Map phase finishes?
+      more map tasks than workers
+    Why does it peak at 5,000 MB/s?
+      net cross-sec b/w abt 18 GB/s
+    Why a gap, then starts again?
+      runs some Reduce tasks, then fetches more
+    Why is the 2nd bump lower than first?
+      maybe competing w/ overlapped output writes
   Lower graph -- Reduce output rate
-    How can reduces start before shuffle has finished? (again, shuffle gets all files for some tasks)
-    Why is output rate so much lower than input rate? (net rather than disk; writes twice to GFS)
-    Why the gap between apparent end of output and vertical "Done" line? (stragglers?)
+    How can reduces start before shuffle has finished?
+      again, shuffle gets all files for some tasks
+    Why is output rate so much lower than input rate?
+      net rather than disk; writes twice to GFS
+    Why the gap between apparent end of output and vertical "Done" line?
+      stragglers?
 
 What should we buy if we wanted sort to run faster?
   Let's guess how much each resource limits performance.
@@ -226,8 +234,11 @@ What should we buy if we wanted sort to run faster?
   Stragglers: 150 seconds? (Figure 3(a) bottom tail)
   The answer: the network accounts for 600 of 850 seconds
 
-Is it disappointing that sort harnesses only a small fraction of cluster CPU power?
+Is it disappointing that sort uses only a small fraction of cluster CPU power?
   After all, only 200 of 800 seconds were spent sorting.
+  Alternate view: they made good use of RAM and network.
+    Probably critical that 1800 machines had more then a terabyte of RAM.
+    And sorting is perhaps inherently about movement, not CPU.
   If all they did was sort, they should sell CPUs/disks and buy a faster network.
 
 Modern data centers have relatively faster networks
@@ -244,6 +255,6 @@ For what applications *doesn't* MapReduce work well?
 
 MapReduce retrospective
   Single-handedly made big cluster computation popular
-    (though coincident with big datacenters, cheap machines, data-oriented companies)
+    (tho coincident w/ big datacenters, cheap servers, data-oriented companies)
   Hadoop is still very popular
   Inspired better successors (Spark, DryadLINQ, &c)

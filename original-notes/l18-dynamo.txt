@@ -1,4 +1,4 @@
-6.824 2014 Lecture 17: Dynamo
+6.824 2015 Lecture 18: Dynamo
 =============================
 
 Dynamo: Amazon's Highly Available Key-value Store
@@ -10,107 +10,96 @@ Why are we reading this paper?
   A real system: used for e.g. shopping cart at Amazon
   More available than PNUTS, Spanner, &c
   Less consistent than PNUTS, Spanner, &c
-  Influential design; inspired e.g. Facebook's Cassandra
+  Influential design; inspired e.g. Cassandra
   2007: before PNUTS, before Spanner
 
-Environment
-  [data centers, app servers ("clients"), Dynamo nodes]
-  *not* full replica per site as in PNUTS, MegaStore
-  sounds like e.g. 10 data centers, each item at 3 of them
-  seems like this would yield frequent WAN traffic
-  maybe they get locality at a higher level?
-    i.e. direct UK customers to amazon.co.uk, with multiple datacenters in UK
-    with low latency between them
-
 Their Obsessions
-  SLA, 99.9th percentile of delay
+  SLA, e.g. 99.9th percentile of delay < 300 ms
   constant failures
   "data centers being destroyed by tornadoes"
   "always writeable"
 
-Where does that take us?
-  available => replicas
-  always writeable => allowed to write just one replica if partitioned
-    no paxos, no primary or master, no agreed-on "view"
-  always writeable + "replicas" + partitions = conflicting versions
+Big picture
+  [lots of data centers, Dynamo nodes]
+  each item replicated at a few random nodes, by key hash
 
-The Big Idea: eventual consistency
+Why replicas at just a few sites? Why not replica at every site?
+  with two data centers, site failure takes down 1/2 of nodes
+    so need to be careful that *everything* replicated at *both* sites
+  with 10 data centers, site failure affects small fraction of nodes
+    so just need copies at a few sites
+
+Consequences of mostly remote access (since no guaranteed local copy)
+  most puts/gets may involve WAN traffic -- high delays
+    maybe distinct Dynamo instances with limited geographical scope?
+    paper quotes low average delays in graphs but does not explain
+  more vulnerable to network failure than PNUTS
+    again since no local copy
+
+Consequences of "always writeable"
+  always writeable => no master! must be able to write locally.
+  always writeable + failures = conflicting versions
+
+Idea #1: eventual consistency
   accept writes at any replica
   allow divergent replicas
   allow reads to see stale or conflicting data
-  resolve conflicts when failures go away
-    reader must merge and then write
+  resolve multiple versions when failures go away
+    latest version if no conflicting updates
+    if conflicts, reader must merge and then write
   like Bayou and Ficus -- but in a DB
 
 Unhappy consequences of eventual consistency
-  No notion of "latest version"
-  Read can yield multiple conflicting version
+  May be no unique "latest version"
+  Read can yield multiple conflicting versions
   Application must merge and resolve conflicts
   No atomic operations (e.g. no PNUTS test-and-set-write)
 
-IVY/Harp/Spanner/FDS ... PNUTS ... Dynamo/Bayou/Ficus
-  Synchronous replication ... async replication ... eventually consistent
-  Dynamo is like a standard DB (or Harp) when all goes well
-  Like Ficus when there are failures
+Idea #2: sloppy quorum
+  try to get consistency benefits of single master if no failures
+    but allows progress even if coordinator fails, which PNUTS does not
+  when no failures, send reads/writes through single node
+    the coordinator
+    causes reads to see writes in the usual case
+  but don't insist! allow reads/writes to any replica if failures
 
-Data model
-  simple k/v
-  hash, not ordered, no range scans
-
-Query model
-  get(k) -> set of values and "context"
-    context is version info
-  put(k, v, context)
-    context indicates which versions this put supersedes
-
-Most basic design decision: where is data placed?
-  load balance, including as servers join/leave
-  replicating
-  finding keys, including if failures
-  encourage puts and gets to see each other
-  avoid conflicting versions spread over many servers
-
-Consistent hashing
+Where to place data -- consistent hashing
   [ring, and physical view of servers]
   node ID = random
   key ID = hash(key)
   coordinator: successor of key
     clients send puts/gets to coordinator
-    join/leave only affects neighbors
-  replicas at successors
-    "preference list"
+  replicas at successors -- "preference list"
   coordinator forwards puts (and gets...) to nodes on preference list
 
 Why consistent hashing?
-  rather than per-item placement info, or FDS TLT
   Pro
     naturally somewhat balanced
-    no central coordination needed for add/delete load
-    placement is implied just by node list, not e.g. per-item info
+    decentralized -- both lookup and join/leave
   Con (section 6.2)
     not really balanced (why not?), need virtual nodes
-    hard to control who serves what (e.g. some keys very popular)
-    add/del node changes partition, requires data to shift
+    hard to control placement (balancing popular keys, spread over sites)
+    join/leave changes partition, requires data to shift
 
-Failures -- two levels, w/ different techniques
-  Temporary failures
-  Permanent failures
-  Tension:
+Failures
+  Tension: temporary or permanent failure?
     node unreachable -- what to do?
-    if really dead, need to make new copies to maintain fault-tolerance
-    if really dead, want to avoid repeatedly waiting for it
-    if just temporary, hugely wasteful to make new copies
+    if temporary, store new puts elsewhere until node is available
+    if permanent, need to make new replica of all content
   Dynamo itself treats all failures as temporary
 
 Temporary failure handling: quorum
   goal: do not block waiting for unreachable nodes
+  goal: put should always succeed
   goal: get should have high prob of seeing most recent put(s)
   quorum: R + W > N
     never wait for all N
     but R and W will overlap
+    cuts tail off delay distribution and tolerates some failures
   N is first N *reachable* nodes in preference list
-    each node pings to keep rough estimate of up/down
+    each node pings successors to keep rough estimate of up/down
     "sloppy" quorum, since nodes may disagree on reachable
+  sloppy quorum means R/W overlap *not guaranteed*
 
 coordinator handling of put/get:
   sends put/get to first N reachable nodes, in parallel
@@ -124,25 +113,32 @@ What if a put() leaves data far down the ring?
   after failures repaired, new data is beyond N?
   that server remembers a "hint" about where data really belongs
   forwards once real home is reachable
-  also -- periodic "merkle tree" sync of whole DB
+  also -- periodic "merkle tree" sync of key range
 
 How can multiple versions arise?
   Maybe a node missed the latest write due to network problem
-  So it has old data, should be superseded
+  So it has old data, should be superseded by newer put()s
+  get() consults R, will likely see newer version as well as old
 
 How can *conflicting* versions arise?
-  Network partition, different updates
-  Example: Shopping basket with item X
-    Partition 1 removes X, yielding ""
-    Partition 2 adds Y, yielding "X Y"
-  Neither copy is newer than the other -- they conflict
-  After partition heal, client read will yield both versions
-    B/c a quorum read may fetch both
-
-Why not resolve conflicts on a write?
-  Two potential reasons:
-  - Increases latency for write operations (to resolve + write again)
-  - Requires waiting for more servers during write?
+  N=3 R=2 W=2
+  shopping cart, starts out empty ""
+  preference list n1, n1, n3, n4
+  client 1 wants to add item X
+    get() from n1, n2, yields ""
+    n1 and n2 fail
+    put("X") goes to n3, n4
+  client 2 wants to delete X
+    get() from n3, n4, yields "X"
+    put("") to n3, n4
+  n1, n2 revive
+  client 3 wants to add Y
+    get() from n1, n2 yields ""
+    put("Y") to n1, n2
+  client 3 wants to display cart
+    get() from n1, n3 yields two values!
+      "X" and "Y"
+      neither supersedes the other -- the put()s conflicted
 
 How should clients resolve conflicts on read?
   Depends on the application
@@ -155,6 +151,7 @@ How should clients resolve conflicts on read?
   Write the merged result back to Dynamo
 
 How to detect whether two versions conflict?
+  As opposed to a newer version superseding an older one
   If they are not bit-wise identical, must client always merge+write?
   We have seen this problem before...
 
@@ -170,18 +167,12 @@ Version vectors
     [a:2]
     Client must merge
 
-What happens if two clients concurrently write?
-  To e.g. increment a counter
-  Each does read-modify-write
-  So they both see the same initial version
-  Will the two versions have conflicting VVs? (no!)
-
-What if a client resolves a conflict, but another conflict is created?
-  VVs work fine if the conflicting write is on a different server
-  If conflicting writes on the same server, then it's an application problem:
-    race condition writing to the same key
+get(k) may return multiple versions, along with "context"
+  and put(k, v, context)
+  put context tells coordinator which versions this put supersedes/merges
 
 Won't the VVs get big?
+  Yes, but slowly, since key mostly served from same N nodes
   Dynamo deletes least-recently-updated entry if VV has > 10 elements
 
 Impact of deleting a VV entry?
@@ -193,29 +184,48 @@ Impact of deleting a VV entry?
   forgetting the oldest is clever
     since that's the element most likely to be present in other branches
     so if it's missing, forces a merge
+    forgetting *newest* would erase evidence of recent difference
 
 Is client merge of conflicting versions always possible?
   Suppose we're keeping a counter, x
-  x=10, then partition, incremented by 5 to x=15 both partitions
-  After heal, client sees two versions, both x=15
+  x starts out 0
+  incremented twice
+  but failures prevent clients from seeing each others' writes
+  After heal, client sees two versions, both x=1
   What's the correct merge result?
   Can the client figure it out?
+
+What if two clients concurrently write w/o failure?
+  e.g. two clients add diff items to same cart at same time
+  Each does get-modify-put
+  They both see the same initial version
+  And they both send put() to same coordinator
+  Will coordinator create two versions with conflicting VVs?
+    We want that outcome, otherwise one was thrown away
+    Paper doesn't say, but coordinator could detect problem via put() context
 
 Permanent server failures / additions?
   Admin manually modifies the list of servers
   System shuffles data around -- this takes a long time!
-  There is no lab2-like view server that removes/adds servers
-  Left to itself, system treats all failures as temporary
+
+The Question:
+  It takes a while for notice of added/deleted server to become known
+    to all other servers. Does this cause trouble?
+  Deleted server might get put()s meant for its replacement.
+  Deleted server might receive get()s after missing some put()s.
+  Added server might miss some put()s b/c not known to coordinator.
+  Added server might serve get()s before fully initialized.
+  Dynamo probably will do the right thing:
+    Quorum likely causes get() to see fresh data as well as stale.
+    Replica sync (4.7) will fix missed get()s.
 
 Is the design inherently low delay?
   No: client may be forced to contact distant coordinator
-  No: some of the N nodes may be distant
-  No: coordinator has to wait for W or R responses
+  No: some of the R/W nodes may be distant, coordinator must wait
 
 What parts of design are likely to help limit 99.9th pctile delay?
   This is a question about variance, not mean
-  Bad news: consulting multiple nodes for get/put is a lose
-    time = max(servers), if you have to talk to lots, at least one will be slow
+  Bad news: waiting for multiple servers takes *max* of delays, not e.g. avg
   Good news: Dynamo only waits for W or R out of N
     cuts off tail of delay distribution
     e.g. if nodes have 1% chance of being busy with something else
@@ -250,37 +260,39 @@ They had to fiddle with the partitioning / placement / load balance (6.2)
 How useful is ability to have multiple versions? (6.3)
   I.e. how useful is eventual consistency
   This is a Big Question for them
-  6.3 claims 0.00113% of reads see multiple versions
+  6.3 claims 0.001% of reads see divergent versions
+    I believe they mean conflicting versions (not benign multiple versions)
     Is that a lot, or a little?
-    [ seems like 0.05887% of requests returned no version? ]
-  So perhaps 0.00113% of writes benefitted from always-writeable?
+  So perhaps 0.001% of writes benefitted from always-writeable?
     I.e. would have blocked in primary/backup scheme?
-  But maybe not!
-    They seem to say divergent versions caused by concurrent writes
-    Not by e.g. disconnected data centers
-    Concurrent writes maybe better solved w/ test-and-set-write
+  Very hard to guess:
+    They hint that the problem was concurrent writers, for which
+      better solution is single master
+    But also maybe their measurement doesn't count situations where
+      availability would have been worse if single master
 
 Performance / throughput (Figure 4, 6.1)
   Figure 4 says average 10ms read, 20 ms writes
     the 20 ms must include a disk write
     10 ms probably includes waiting for R/W of N
-    so nodes are all in same datacenter? all in same city? paper doesn't say.
   Figure 4 says 99.9th pctil is about 100 or 200 ms
     Why?
     "request load, object sizes, locality patterns"
     does this mean sometimes they had to wait for coast-coast msg? 
 
+Puzzle: why are the average delays in Figure 4 and Table 2 so low?
+  Implies they rarely wait for WAN delays
+  But Section 6 says "multiple datacenters"
+    you'd expect *most* coordinators and most nodes to be remote!
+    Maybe all datacenters are near Seattle?
+
 Wrap-up
   Big ideas:
     eventual consistency
-    partitioned operation
+    always writeable despite failures
     allow conflicting writes, client merges
-  Maybe only way to get high availability + no blocking on WAN
-    But no evidence that entire sites are partitioned
-    PNUTS design implies Yahoo thinks not a problem
-    (but later PNUTS follow-on said they added a Dynamo-like mode)
   Awkward model for some applications (stale reads, merges)
-    This is hard for us to tell from paper
-  No agreement on whether it's good for storage systems
-    Unclear what's happened to Dynamo at Amazon in the meantime
-    Almost certainly significant changes (2007->2014)
+    this is hard for us to tell from paper
+  Maybe a good way to get high availability + no blocking on WAN
+    but PNUTS master scheme implies Yahoo thinks not a problem
+  No agreement on whether eventual consistency is good for storage systems

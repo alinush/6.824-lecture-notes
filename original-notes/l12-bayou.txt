@@ -1,4 +1,4 @@
-6.824 2014 Lecture 15: Eventual Consistency
+6.824 2015 Lecture 12: Eventual Consistency, Bayou
 
 Managing Update Conflicts in Bayou, a Weakly Connected Replicated
 Storage System Terry, Theimer, Petersen, Demers, Spreitzer, Hauser,
