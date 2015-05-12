@@ -1,30 +1,21 @@
-6.824 2014 Lecture 20: Bitcoin
+6.824 2015 Lecture 23: Bitcoin
 
 Bitcoin: A Peer-to-Peer Electronic Cash System, by Satoshi Nakamoto
 2008
 
-what's right/wrong with cash?
-  +  portable
-  +  cannot spend twice
-  +  cannot repudiate after payment
-  +  no need for trusted 3rd party
-  +  anonymous (serial #s?)
-  -  doesn't work online
-  -  easy to steal
-  +- hard to tax / monitor
-  +- government can print more as economy expands
-
-we want e-money; what about credit cards?
-  (paypal and bank e-checks are similar)
-  +  works online 
+why aren't credit cards the perfect digital money?
+  +  work online 
   +  hard to steal (a complex situation)
-  +- can repudiate
-  -  requires trusted 3rd party
-  -  tracks all your purchases
-  -  can prohibit some xactions (e.g. wikileaks donations)
-  +- easy for government to monitor/tax/control
+  +- can cancel transactions, call customer support
+  -  relies on 3rd parties to verify (banks)
+     b/c users cannot directly verify charges
+  -  3% fee
+  -  long settling time
+  -  hard to become a merchant
+  +- tied to currency controlled by government
 
 bitcoin: e-money without a central trusted party
+  a public ledger: anyone can verify transactions
 
 what's hard technically?
   forgery
@@ -33,111 +24,101 @@ what's hard technically?
 
 what's hard socially/economically?
   why does it have value?
-  how to convert?
   how to pay for infrastructure?
   monetary policy (intentional inflation &c)
   laws (taxes, laundering, drugs, terrorists)
 
-basic bitcoin setup
-  (all this for a simplified version of bitcoin)
-  a network of bitcoin peers (servers) run by volunteers
-    peers are not trusted: some may be corrupt
-  each peer knows about all bitcoins and transactions
-  transaction (sender -> receiver):
-    sender sends transaction info to some peers
-    peers flood transaction to all other peers
-    receiver checks that lots of peers have seen transaction
-    receiver checks that that bitcoin hasn't already been spent
+let's design OneBit, a simple e-money system
+  to illustrate a public, verifiable ledger using transaction chain
+  each user owns some coins
+  single server -- OneBank -- everyone talks to it
+  OneBank records all transactions
 
-transactions
-  every bitcoin has a chain of transaction records
-    one for each time this bitcoin was transferred as payment
-  the bitcoin servers maintain the complete chain for every bitcoin
-  chain helps ensure only owner spends
+OneBit transactions
+  every coin has a chain of transaction records
+    one for each time this coin was transferred as payment
+  OneBank maintains the complete chain for each coin
+  chain helps ensure that only the current owner spends
 
-what's in a transaction record?
+what's in a OneBit transaction record?
   public key of new owner
-  hash of this bitcoin's previous transaction record
+  hash of this coin's previous transaction record
   signed by private key of previous owner
-  in reality, more complex: amount (fractional), multiple in/out, ..
+  (BitCoin is much more complex: amount (fractional), multiple in/out, ...)
 
-example:
-  a bitcoin is owned by user Y (who received it in payment from X)
-  T7: pub(Y), hash(T6), sig(X)
-  Y buys a hamburger from Z and pays with this bit-coin
-  Z needs to tell Y Z's public key (~~ bitcoin "address")
-    perhaps create a new address just for Y's purchase
-    helps Z figure out what the payment is for
-  Y creates a new transaction and signs it
-  T8: pub(Z), hash(T7), sig(Y)
-  Y sends T8 to bitcoin peers, which flood it
-  honest peers verify that:
+OneBit example:
+  Y owns a coin, previously given to it by X:
+    T7: pub(Y), hash(T6), sig(X)
+  Y buys a hamburger from Z and pays with this coin
+    Z tells Y Z's public key ("address")
+    Y creates a new transaction and signs it
+    T8: pub(Z), hash(T7), sig(Y)
+  OneBank verifies that:
     no other transaction mentions hash(T7),
     T8's sig() corresponds to T7's pub()
-  Z waits until lots of peers have seen/verified T8,
+  Z waits until OneBank has seen/verified T8,
     verifies that T8's pub() is Z's public key,
     then Z gives hamburger to Y
 
-note: payment flows via peer network, not direct from Y to Z
-
 why include pub(Z)?
-
-why include hash(T7)?
 
 why sign with sig(Y)?
 
-where is Z's resulting bitcoin value "stored"?
-  bitcoin balance = unspent xaction
-  the "identity" of a bitcoin is the (hash of) its most recent xaction
-  Z "owns" the bitcoin: has private key that allows Z to make next xaction
+why include hash(T7)?
+  hash(T7) identifies the exact coin to be spent
+  a coin ID scheme might be ambiguous if Y owned this coin previously
 
-does transaction chain prevent stealing?
+where is Z's resulting coin value "stored"?
+  coin balance = unspent xaction
+  the "identity" of a coin is the (hash of) its most recent xaction
+  Z "owns" the coin: has private key that allows Z to make next xaction
+
+does OneBit's transaction chain prevent stealing?
   current owner's private key needed to sign next transaction
   danger: attacker can steal Z's private key
     Z uses private key a lot, so probably on his PC, easy to steal?
-  a significant problem for bitcoin in practice
+  a significant problem for BitCoin in practice
 
-does design so far prevent double-spending? no!
-  suppose Y creates two transactions for same bitcoin: Y->Z, Y->Q
-  Z and Q probably don't check *all* the peers
-    so Y has a chance to tell diff peers diff xactions
-  maybe some peers are corrupt and cooperating with Y
-    hide Y->Q from Z, hide Y->Z from Q
-  even if peers know both transactions
-    maybe it's not clear which is "first" and thus is the real transaction
-  only need to play tricks briefly
-    just until Z gives the hamburger to Y
+what if OneBank is corrupt?
+  it can't forge transactions (doesn't know private keys)
+  but it can help people double-spend!
+
+double-spending with OneBit
+  suppose OneBank is cooperating with Y to cheat Z or Q
+  Y creates two transactions for same coin: Y->Z, Y->Q
+    both have has pointing to same current end of chain
+  OneBank shows chain ending in Y->Z to Z, and Y->Q to Q
+    both transactions look good, including signatures and hash
+  now both Z and Q will give hamburgers to Y
+
+why was double-spending possible?
+  OneBank can *hide* some information,
+  or selectively reveal it
 
 what's needed?
-  a strong notion of publishing
-    either everyone sees xaction, or every doesn't see / ignores
-    e.g. if Z sees Y->Z, Q sees Y->Z too
-  a strong notion of order
-    everyone agrees on which xaction came first, and which was dup
-  easy to achieve with central server: keeps a log of all xactions
-    but we want to avoid relying on any trusted party
- 
-the block chain
+  many servers ("peers")
+  send all transactions to all peers
+  much harder for a few bad peers to hide transactions
+  conventions to un-fork if problems do arise
+
+the BitCoin block chain
+  single block chain contains transactions on all coins
   a copy stored in each peer
-    why does each peer need complete copy?
-    must know about all other possible xactions
+    so each peer can validate new transactions against old ones
   each block:
     hash(prevblock)
     set of transactions
     "nonce" (not quite a nonce in the usual cryptographic sense)
     current time (wall clock timestamp)
-  the order of blocks is implied by hash(prevblock)
-    i.e. given the most recent block, you can find all prev blocks
   a transaction isn't real unless it's in the block chain
   new block every 10 minutes containing xactions since prev block
 
 who creates each new block?
-  i.e., who extends the chain?
   all the peers try
   requirement: hash(block) < "target"
   peers try nonce values until this works out
   can't predict a winning nonce, since cryptographic hash
-  trying one nonce is fast, but only a few values will work
+  trying one nonce is fast, but most nonces won't work
   it would take one CPU months to create one block
   but thousands of peers are working on it
   such that expected time to first to find is about 10 minutes
@@ -153,7 +134,7 @@ how do transactions work w/ block chain?
   peers that heard Y->Z include it in next block
   so eventually ...<-B5<-B6<-B7, where B7 includes Y->Z
 
-what if we want to double-spend?
+what if bad person wants to double-spend?
   start with block chain ...<-B6
   Y gets Y->Z into block chain
     ...<-B6<-BZ (BZ contains Y->Z)
@@ -187,9 +168,8 @@ summary:
 how long should Z wait before giving Y the hamburger?
   until Z sees Y flood the transaction to many peers?
     no -- not in the chain, Y might flood conflicting xaction
-  until Z sees one peer with chain ...<-BZ (containing Y->Z)?
-    no -- maybe that peer is corrupt, in league with Y
-  until Z sees lots of peers with chain ...<-BZ?
+    maybe OK for low-value transactions
+  until Z sees chain ...<-BZ?
     maybe
     risky -- non-zero chance that some other chain will win
       i.e. some lucky machine discovered a few blocks in a row
@@ -219,20 +199,17 @@ validation checks:
     there's several more blocks in the chain
   (other stuff has to be checked as well, lots of details)
 
-Q: what can Z assume about xaction if it appears in log?
-   does Z need to check entire history of bitcoin?
-
-Q: why do peers bother checking new xactions before adding to txn list?
-   mined block will be rejected by peers if it contains bad xaction.
+where does each bitcoin originally come from?
+  each time a peer creates a block, it gets 25 bitcoins
+    assuming it is the winner for that block
+  it puts its public key in a special transaction in the block
+  this is incentive for people to operate bitcoin peers
+  but that number halves every 210,000 blocks (abt 4 years)
+  the point: motivate people to run peers
 
 Q: how do peers communicate / find each other?
 
 Q: what prevents a bad peer from modifying an existing block?
-
-Q: what prevents a bad peer from reporting an invalid timestamp?
-   other nodes validate timestamp in a block
-   must be larger than median of past few blocks
-   must not be too far in the future (within 2 hours)
 
 Q: what if two nodes disagree on the validity of a transaction?
    (slight implementation differences between software versions)
@@ -241,47 +218,31 @@ Q: 10 minutes is annoying; could it be made much shorter?
 
 Q: are transactions anonymous?  pseudonymous?  analogy: IP addresses.
 
-Q: if I steal bitcoins, is it safe to spend them?
+Q: can bitcoins be stolen?
 
-Q: what other attacks might work?
-   oddity of bitcoin's protocol: transaction malleability.
-     cannot rely on your own transaction's hash, until txn in chain.
-   mistakes in transactions themselves.
-     [ http://www.righto.com/2014/03/the-programming-error-that-cost-mt-gox.html ]
+Q: if I steal bitcoins, is it safe to spend them?
 
 Q: what can adversary do with a majority of CPU power in the world?
    can double-spend
-   cannot steal
+   cannot steal others' bitcoins
    can prevent xaction from entering chain
    can revert past xactions (by building longer chain from before that block)
-
-where does each bitcoin originally come from?
-  each time a peer creates a block, it gets 25 bitcoins
-    assuming it is the winner for that block
-  it puts its public key in a special transaction in the block
-  this is incentive for people to operate bitcoin peers
-  but that number halves every 210,000 blocks (abt 4 years)
 
 Q: how rich are you likely to get with one machine mining?
 
 Q: if more people (CPUs) mine, will that create new bitcoin faster?
    important use of block timestamps: control difficulty (hash target)
 
-mining will stop after 21 million coins
-  via the halving (smallest possible granularity: 10^-8 BTC)
-  so the supply will eventually be fixed
-  at that point block creator will get transaction fees
+Q: why mine at all? why not start with a fixed number of coins?
 
 Q: why does it make sense for the mining reward to decrease with time?
-
-Q: why mine at all? why not start with a fixed number of coins?
 
 Q: is it a problem that there will be a fixed number of coins?
 
 Q: what if the real economy grows (or shrinks)?
 
 Q: why do bitcoins have value?
-   e.g., 1 BTC appears to be around US$445 on may 8th 2014.
+   e.g., 1 BTC appears to be around US$242 on may 12th 2015.
 
 Q: will we still need banks, credit cards, &c?
    today, dollar bills are only a small fraction of total money
@@ -302,9 +263,7 @@ Q: will bitcoin scale well?
      merkle tree: block headers vs txn data.
 
 key idea: block chain
-  decentralized agreement on a log
-  no trusted parties, apriori membership
-  "votes" proportional to compute power, not identity (IP, email, account, ..)
-  exponentially small probability of rollback as new blocks are added
-  popular in recent years: many bitcoin offshoots, namecoin, ..
-
+  public ledger is a great idea
+  decentralization might be good
+  mining seems imperfect, but does avoid centralized trust
+  tieing ledger to new currency seems bad
