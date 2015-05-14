@@ -1,3 +1,6 @@
+Midterm
+=======
+
 MapReduce
 ---------
 
@@ -270,7 +273,16 @@ contribute to current write are also made visible?
 Ficus
 -----
 
-AnalogicFS
-----------
+Final
+=====
 
-**TODO:** The AnalogicFS paper, read it very carefully and understand it fully; it will definitely show up on the final.
+ > The 6.824 final exam will be on Monday May 18th at 9:00am in Johnson
+ > Track. The exam will last two hours. You should know all of the course
+ > material, but the exam will focus on lectures and papers starting at
+ > Lecture 12 (Bayou), as well as Lab 4. We won't ask detailed questions
+ > about Spanner or Akamai/Hubspot.
+
+ > During the lab you can look at class notes, papers, and lab material.
+ > You may read them on your laptop, but you won't be allowed to use any
+ > network. Bring a copy of each paper, either on paper or on your
+ > laptop.
