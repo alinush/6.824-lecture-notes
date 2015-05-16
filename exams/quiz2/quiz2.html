@@ -1,0 +1,199 @@
+<h1>2009, Quiz 1</h1>
+
+<h2>Bayou</h2>
+
+<h3>Question 4</h3>
+
+<p>If David syncs with the primary first, or if David's logical timestamp is higher
+that MIT Daycare's (either due to the clock or node ID being higher) and they
+sync and then one of them talks to the primary.</p>
+
+<h1>2010, Quiz 1</h1>
+
+<h2>Bayou</h2>
+
+<h3>Question 7</h3>
+
+<p>A: a1t0
+B:      b1t1
+C:           c1t2</p>
+
+<p>B syncs with C, C commits with S => b1 commits first
+A syncs with B => A's tentative schedule is: a1t0 b1t1 
+A syncs with S => A's schedule changes to: b1t1 a1t0</p>
+
+<h1>2011, Quiz 1</h1>
+
+<h2>Bayou</h2>
+
+<h3>Question 4</h3>
+
+<p>The logical clock scheme would work better than using real-time clocks when
+those real time clocks are out of sync:</p>
+
+<p>N1 real time clock says 9:00am (actual time is 9:00am)
+N2 real time clock says 10:00am (actual time is 9:00am)</p>
+
+<p>If N1 sends an update of a file F to N2, then N2 will ignore it because its clock
+is too far ahead.</p>
+
+<h3>Question 5</h3>
+
+<p>Conflict resolution. Resolving update conflicts.</p>
+
+<h3>Question 6</h3>
+
+<p>A: a1 <br />
+B:    b1</p>
+
+<p>B commits with S => b1 gets 1
+B syncs with A => a1, b1
+A syncs with S => updates get reordered b1, a1</p>
+
+<h3>Question 7</h3>
+
+<p>A: a1
+B:    b1
+C:       c1</p>
+
+<p>pairwise sync (A-B, B-C)</p>
+
+<p>A: a1, b1
+B: a1, b1, c1
+C: b1, c1</p>
+
+<p>A creates a1
+B syncs with A,
+B creates b1 after a1
+C syncs with B
+C creates c1 after b1</p>
+
+<p>C syncs first with S => b1 gets CSN 1, c1 gets CSN 2
+B syncs first with S => b1 is already synced and a1 gets CSN 3 (weird)</p>
+
+<p>Their answer: server i reserves a room for 10/11/12pm w/ TS i after syncing with 
+server (i-1), which did the same before him.</p>
+
+<h3>Question 8</h3>
+
+<p>The guy with the highest node ID will see all of its updates constantly being
+rescheduled everytime he syncs with someone. A lot of his updates could fail as
+a result?</p>
+
+<h1>2012, Quiz 1</h1>
+
+<h2>Bayou</h2>
+
+<h3>Question 3</h3>
+
+<p>If Victor sends just his update to the primary and Vera's didnt make it there yet, 
+then Victor wins: his update gets the smaller CSN. If Victor sends both updates
+to the primary, then the primary will given them CSNs in order, and Vera's update
+will get the 1st CSN => Vera wins. I think the way Bayou works will have Victor
+send both of his updated to the primary => vera wins</p>
+
+<h3>Question 4</h3>
+
+<p>Write <code>x</code> has vv: <code>[s1: 1, s2: 2]</code>
+Write <code>y</code> has vv: <code>[s1: 2, s2: 1]</code></p>
+
+<h3>Question 5</h3>
+
+<p>In Bayou, it would not be okay: the reason we used logical clocks was so that
+all servers apply the tentative updates in the same order.</p>
+
+<p>...but the primary actually orders/commits updates in the order they arrive, so
+it seems that it shouldn't matter how clients apply their tentative updates. They
+will end up disagreeing more often with this scheme, but ultimately, the primary
+will make sure they all agree up to the last committed update.</p>
+
+<h1>2013, Quiz 2</h1>
+
+<h2>Bayou</h2>
+
+<h3>Question 2</h3>
+
+<p>A: Neha, [-, 1, A]
+A: Robert [-, 2, A]
+N: Charles [-, 1, N]
+A &lt;-> N</p>
+
+<p>Yes. Say their node IDs are A and N, s.t. A &lt; N, Then they will all display:</p>
+
+<p>Neha, Charles, Robert</p>
+
+<p>Because N's update will be after A's Neha update but before A's Robert update.
+1 &lt; 2 and A &lt; N.</p>
+
+<h3>Question 3</h3>
+
+<p>If no seats are reserved, then the only seat assignment that is possible is 
+Neha, Charles, Robert.</p>
+
+<p>If the question refers to all <em>committed</em> seat assignments that are possible,
+then the Neha and Robert need to maintain their causal ordering, while Charles
+can be anywhere in between them, depending on what time N syncs with S.</p>
+
+<h3>Question 4</h3>
+
+<p>Either one could be right. If Agent Ack (or another agent) committed on S, then
+seat 1 is reserved (because seats are reserved in order). If no agent committed
+on S, then Professor Strongly Consistent has a point: Agent Ack could be the
+first one to commit on S and get the professor seat #1. The remaining question
+is if Agent Ack can reach the primary S.</p>
+
+<p>Oh fudge, Sack != Ack. Poor name choosing...</p>
+
+<h1>2014, Quiz 2</h1>
+
+<h2>Bayou</h2>
+
+<h3>Question 10</h3>
+
+<p>H2's local timestamp starts at 0 and H2 synchronized with H1, whose update had
+timestamp 1 => H2's local timestamp will be updated to 1 => H2's update timestamp
+will be updated to 2</p>
+
+<h3>Question 11</h3>
+
+<p>After synchronizing with S:</p>
+
+<p>H1: [1, 1, H1]
+H2: [2, 2, H2]</p>
+
+<p>Not sure if the central server S also updates H1/H2's logical clocks. I don't
+think so.</p>
+
+<p>Fudge... H3 != H1</p>
+
+<p>H3 syncs with S => H3 gets [1, 1, H3]
+H1 talks to H2 => H2 gets [-, 2, H2]
+H2 syncs with S => H2 gets [2, 2, H2]
+H1 syncs with S => H1 gets [3, 1, H1]</p>
+
+<p>Still disagreeing with their answer (H2 gets CSN 3 and H1 gets CSN 2). For some
+reason, they assume H1 gets there first. Oh... and it does, because H1 synced
+with H2, and H2 syncs with S first, but will include H1's update as the first
+one.</p>
+
+<h3>Question 12</h3>
+
+<p>Setup:
+H3 synced with S => 10am Ben committed
+H2 synced with S => 11am Alice committed
+H1 synced with S => 10am Bob was rejected. Maybe it goes to 12pm?</p>
+
+<p>Actions:
+H4 syncs with H2 => H4's clock becomes 2
+H4 syncs with H3 => H4's clock stays 2. H3's clock becomes 2?\</p>
+
+<p>After syncing with H2, H4 gets 10am Ben, 11am Alice
+After syncing with H3, who's behind, calendar stays the same.</p>
+
+<h3>Question 13</h3>
+
+<p>Bayou was developed so that users can operate in offline mode. Paxos wouldn't work
+here at all when a majority of user's nodes are offline. If the question asked
+about using Paxos to replicate the primary, then sure, yes, go ahead. But
+using paxos to have the client's machines agree on their operations' order will
+not work well.</p>
