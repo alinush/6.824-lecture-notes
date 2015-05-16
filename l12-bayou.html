@@ -55,7 +55,7 @@ to write to their local copies and synchronize them later</li>
 <p>Not a good approach because it requires everyone to have connectivity to
 the server.</p>
 
-<p>Would be nice if you have PDA send appointment to laptop, whoc can then send it
+<p>Would be nice if you have PDA send appointment to laptop, which can then send it
 to the server.</p>
 
 <pre><code>    PDA
@@ -81,11 +81,17 @@ what's in the DB.</p>
 
 <ul>
 <li>if free at 10am
-    reserve @10am</li>
+<ul>
+<li>reserve @10am</li>
+</ul></li>
 <li>else if free at 9am
-    reserve @9am</li>
+<ul>
+<li>reserve @9am</li>
+</ul></li>
 <li>else
-    reserve</li>
+<ul>
+<li>reserve</li>
+</ul></li>
 </ul>
 
 <p>Bayou takes this function from the PDA and gives it to the laptop.</p>
@@ -101,15 +107,11 @@ what's in the DB.</p>
 enough:</p>
 
 <ul>
-<li>X syncs with A
-10am staff meeting</li>
-<li><p>X syncs with B
-11am hiring meeting</p></li>
-<li><p>Y syncs with B
-10am hiring meeting</p></li>
-<li><p>Y syncs with A
-11am staff meeting</p></li>
-<li><p>now X and Y have differing views</p></li>
+<li>X syncs with A: X gets 10am staff meeting</li>
+<li>X syncs with B: X gets 11am hiring meeting</li>
+<li>Y syncs with B: Y gets 10am hiring meeting</li>
+<li>Y syncs with A: Y gets 11am staff meeting</li>
+<li><strong>Bad:</strong> now X and Y have differing views</li>
 </ul>
 
 <p><code>=&gt;</code> have to execute <code>A</code>'s and <code>B</code>'s update functions in the same order</p>
@@ -210,7 +212,7 @@ it just timestamps things as they come</li>
 <li>commit does not preserve wall clock order</li>
 </ul>
 
-<p>If you don't have a CSN: <code>&lt;-, T, nodeID&gt;</code>. All commited operations are considered
+<p>If you don't have a CSN: <code>&lt;-, T, nodeID&gt;</code>, all commited operations are considered
 to occur before uncommitted ones. </p>
 
 <p><strong>TODO:</strong> not clear what this example was supposed to show</p>
@@ -231,22 +233,30 @@ to occur before uncommitted ones. </p>
 
 <ul>
 <li>A has 
-    &lt;-, 10, X>
-    &lt;-, 20, Y>
-    &lt;-, 30, X>
-    &lt;-, 40, X></li>
-<li><p>B has
-    &lt;-, 10, X>
-    &lt;-, 20, Y>
-    &lt;-, 30, X></p></li>
-<li><p>A syncs with B
-     sends a version vector to B describe which updates it has
-     from every node
-        A: [X 40, Y 20]
-        (remember that the timestamps are always increased by senders)
-        B: [X 30, Y 20]
-        If B compares A's VT with his, he notices that he needs 
-        updates by X between timestamp 30 and 40</p></li>
+<ul>
+<li><code>&lt;-, 10, X&gt;</code></li>
+<li><code>&lt;-, 20, Y&gt;</code></li>
+<li><code>&lt;-, 30, X&gt;</code></li>
+<li><code>&lt;-, 40, X&gt;</code></li>
+</ul></li>
+<li>B has
+<ul>
+<li><code>&lt;-, 10, X&gt;</code></li>
+<li><code>&lt;-, 20, Y&gt;</code></li>
+<li><code>&lt;-, 30, X&gt;</code></li>
+</ul></li>
+<li>A syncs with B
+<ul>
+<li>sends a version vector to B describe which updates it has
+from every node
+<ul>
+<li>A: <code>[X 40, Y 20]</code></li>
+<li>(remember that the timestamps are always increased by senders)</li>
+<li>B: <code>[X 30, Y 20]</code></li>
+<li>If B compares A's VT with his, he notices that he needs 
+updates by X between timestamp 30 and 40</li>
+</ul></li>
+</ul></li>
 </ul>
 
 <h3>A new node joins</h3>
@@ -266,22 +276,27 @@ example</p>
 <li>Z joins the system</li>
 <li>Z talks to X</li>
 <li>X generates Z's unique node ID
-    Z's ID = <Tz, X's node ID>, where Tz is the time Z talked to X</li>
-<li><p>X sends an update timestamped with &lt;-, Tz, X> that says "new server z"
-    Everybody will see this first before seeing Z's updates
-        Z's updates have timestamps higher than Tz</p>
+<ul>
+<li>Z's ID = <code>&lt;Tz, X's node ID&gt;</code>, where Tz is the time Z talked to X</li>
+</ul></li>
+<li><p>X sends an update timestamped with <code>&lt;-, Tz, X&gt;</code> that says "new server z"</p>
 
 <ul>
-<li>note that IDs are unbounded in size</li>
+<li><p>Everybody will see this first before seeing Z's updates</p>
+
+<ul>
+<li><p>Z's updates have timestamps higher than Tz</p></li>
+<li><p>note that IDs are unbounded in size</p></li>
+</ul></li>
 </ul></li>
 </ul>
 
 <p>Forgetting nodes:</p>
 
 <ul>
-<li>Z's ID = &lt;20, X></li>
+<li>Z's ID = <code>&lt;20, X&gt;</code></li>
 <li>A syncs -> B</li>
-<li>A has log entry from Z &lt;-, 25, &lt;20, X>></li>
+<li>A has log entry from Z <code>&lt;-, 25, &lt;20, X&gt;&gt;</code></li>
 <li>B has no VT entry for Z</li>
 </ul>
 

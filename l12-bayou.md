@@ -47,7 +47,7 @@ Traditional approach (central server):
 Not a good approach because it requires everyone to have connectivity to
 the server.
 
-Would be nice if you have PDA send appointment to laptop, whoc can then send it
+Would be nice if you have PDA send appointment to laptop, which can then send it
 to the server.
 
         PDA
@@ -70,34 +70,28 @@ what's in the DB.
 
 Example:
     
-   + if free at 10am
-        reserve @10am
-   + else if free at 9am
-        reserve @9am
-   + else
-        reserve
+ + if free at 10am
+   - reserve @10am
+ + else if free at 9am
+   - reserve @9am
+ + else
+   - reserve
 
 Bayou takes this function from the PDA and gives it to the laptop.
 
 Suppose A and B want the same times:
 
-   + A wants: either staff meeting at 10  or 11
-   + B wants: hiring meeting at 10 or 11
+ + A wants: either staff meeting at 10  or 11
+ + B wants: hiring meeting at 10 or 11
 
 If you simply apply these functions to node A's and B's databases, that's not
 enough:
 
-   + X syncs with A
-    10am staff meeting
-   + X syncs with B
-    11am hiring meeting
-
-   + Y syncs with B
-    10am hiring meeting
-   + Y syncs with A
-    11am staff meeting
-
-   + now X and Y have differing views
+ + X syncs with A: X gets 10am staff meeting
+ + X syncs with B: X gets 11am hiring meeting
+ + Y syncs with B: Y gets 10am hiring meeting
+ + Y syncs with A: Y gets 11am staff meeting
+ + **Bad:** now X and Y have differing views
 
 `=>` have to execute `A`'s and `B`'s update functions in the same order
 
@@ -174,7 +168,7 @@ becomes: `<csn, T, node ID>`
  - commit preserves causal order
  - commit does not preserve wall clock order
 
-If you don't have a CSN: `<-, T, nodeID>`. All commited operations are considered
+If you don't have a CSN: `<-, T, nodeID>`, all commited operations are considered
 to occur before uncommitted ones. 
 
 **TODO:** not clear what this example was supposed to show
@@ -191,24 +185,23 @@ to occur before uncommitted ones.
 
 Synchronization
     
-   + A has 
-        <-, 10, X>
-        <-, 20, Y>
-        <-, 30, X>
-        <-, 40, X>
-   + B has
-        <-, 10, X>
-        <-, 20, Y>
-        <-, 30, X>
-
-   + A syncs with B
-         sends a version vector to B describe which updates it has
-         from every node
-            A: [X 40, Y 20]
-            (remember that the timestamps are always increased by senders)
-            B: [X 30, Y 20]
-            If B compares A's VT with his, he notices that he needs 
-            updates by X between timestamp 30 and 40
+ + A has 
+   - `<-, 10, X>`
+   - `<-, 20, Y>`
+   - `<-, 30, X>`
+   - `<-, 40, X>`
+ + B has
+   - `<-, 10, X>`
+   - `<-, 20, Y>`
+   - `<-, 30, X>`
+ + A syncs with B
+   - sends a version vector to B describe which updates it has
+     from every node
+     -  A: `[X 40, Y 20]`
+     -  (remember that the timestamps are always increased by senders)
+     -  B: `[X 30, Y 20]`
+     -  If B compares A's VT with his, he notices that he needs 
+        updates by X between timestamp 30 and 40
 
 ### A new node joins
 
@@ -224,18 +217,18 @@ But B won't know if `Z` is newly added or newly deleted?
    + Z joins the system
    + Z talks to X
    + X generates Z's unique node ID
-        Z's ID = <Tz, X's node ID>, where Tz is the time Z talked to X
-   + X sends an update timestamped with <-, Tz, X> that says "new server z"
-        Everybody will see this first before seeing Z's updates
-            Z's updates have timestamps higher than Tz
+     - Z's ID = `<Tz, X's node ID>`, where Tz is the time Z talked to X
+   + X sends an update timestamped with `<-, Tz, X>` that says "new server z"
+     - Everybody will see this first before seeing Z's updates
+       + Z's updates have timestamps higher than Tz
 
  - note that IDs are unbounded in size
     
 Forgetting nodes:
 
-   + Z's ID = <20, X>
+   + Z's ID = `<20, X>`
    + A syncs -> B
-   + A has log entry from Z <-, 25, <20, X>>
+   + A has log entry from Z `<-, 25, <20, X>>`
    + B has no VT entry for Z
 
 Now B needs to figure out from A's updates if Z was added or removed
