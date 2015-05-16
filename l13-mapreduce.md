@@ -143,7 +143,7 @@ a choice of 2-3 servers that it can run every map task on.
  - good for load/balancing (MR master can move slow map tasks to other machines)
    + don't get this benefit for reduce tasks
 
-Output of reduce is stored in GFS `=>` reduce otuput is written across the network.
+Output of reduce is stored in GFS `=>` reduce output is written across the network.
 `=>` total output of MapReduce system is 18GB/s, if that's your cross-section
 bandwidth.
 
@@ -179,7 +179,7 @@ You can't have more reduce workers than you have keys.
 Scalability is limited by
 
  - map split size
- - number of keys `<` # of reduce workers
+ - number of keys `>=` # of reduce workers
  - network bandwidth (need to buy more "network" too, as we buy more machines)
    + a really important problem
 
@@ -189,8 +189,8 @@ Fault tolerance
 ---------------
 
 Challenge: if you run big jobs on 1000s of computers, you are sure to get some
-failures. So cannot simply restart whole computation. Must just redo failed machine's
-work.
+failures. So cannot simply restart whole computation. Must just redo failed
+machine's work.
 
 Difficult to achieve for DSM, easier for MapReduce.
 
@@ -233,10 +233,9 @@ Simply moving 1TB of data will take 200 seconds. And MapReduces moves it more th
 once: from maps to reduce, from reduce to GFS (multiple times for replication)
 
 _Important insight:_ Computation involves moving data. Not just CPU cycles.
-6.824 2015 Lecture 13: MapReduce
 
-6.824 notes
-===========
+6.824 original notes
+====================
 
         Why MapReduce?
           Second look for fault tolerance and performance
