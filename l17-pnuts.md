@@ -38,10 +38,11 @@ Diagram:
         SU1 SU2 SU3 ...                  SU1 SU2 SU3 ...
 
         
+ - each region has its own set of webservers
+ - each region stores all data
  - each table in a region is partitioned among storage units (SUs)
+ - routers know the partitioning
  - each SU has a disk
- - routers know the partitioning?
- - each region also has its own set of webservers
 
 Updates
 -------
@@ -94,6 +95,7 @@ Write semantics
     Alice       home        asleep
     Bob         
 
+ - Alice writes where record which has 3 columns (Name, Where, What)
  - Alice's application says `write(what=awake)`
    + write goes through PNUTS
  - Alice's application says `write(where=work)`

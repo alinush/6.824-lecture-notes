@@ -45,10 +45,11 @@ be a problem with multiple writes
 </code></pre>
 
 <ul>
+<li>each region has its own set of webservers</li>
+<li>each region stores all data</li>
 <li>each table in a region is partitioned among storage units (SUs)</li>
+<li>routers know the partitioning</li>
 <li>each SU has a disk</li>
-<li>routers know the partitioning?</li>
-<li>each region also has its own set of webservers</li>
 </ul>
 
 <h2>Updates</h2>
@@ -118,6 +119,7 @@ Bob
 </code></pre>
 
 <ul>
+<li>Alice writes where record which has 3 columns (Name, Where, What)</li>
 <li>Alice's application says <code>write(what=awake)</code>
 <ul>
 <li>write goes through PNUTS</li>
