@@ -52,7 +52,7 @@ Papers we read in 6.824 ([directory here](papers/)):
  14. [PNUTS](papers/cooper-pnuts.pdf)
  15. [Dynamo](papers/dynamo.pdf)
  16. [Akamai](papers/akamai.pdf)
- 17. [Argus](papers/argus88.pdf)
+ 17. [Argus](papers/argus88.pdf), [Guardians and actions](papers/guardians-and-actions-liskov.pdf)
  18. [Kademlia](papers/kademlia.pdf)
  19. [Bitcoin](papers/bitcoin.pdf)
  20. [AnalogicFS](papers/katabi-analogicfs.pdf)
