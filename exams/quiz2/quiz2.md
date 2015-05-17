@@ -1,3 +1,18 @@
+2006, Quiz 2
+============
+
+2PC
+---
+
+### Q1
+
+If all Si's say I did not send a NO, that does not imply they said "yes". It could
+be that some of the Si's did not get the PREPARE yet => can't commit
+
+### Q2
+
+
+
 2009, Quiz 1
 ============
 
@@ -86,8 +101,23 @@ The guy with the highest node ID will see all of its updates constantly being
 rescheduled everytime he syncs with someone. A lot of his updates could fail as
 a result?
 
+2011, Quiz 2
+============
+
+Argus, two-phase commit
+-----------------------
+
+
+### Q3
+
+2PC does not provide fault tolerance nor availability: if one server is down,
+no one can proceed. Ben's system will not be very available.
+
 2012, Quiz 1
 ============
+
+Argus, 2PC
+----------
 
 Bayou
 -----
