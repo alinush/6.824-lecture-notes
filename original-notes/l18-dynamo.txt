@@ -123,7 +123,7 @@ How can multiple versions arise?
 How can *conflicting* versions arise?
   N=3 R=2 W=2
   shopping cart, starts out empty ""
-  preference list n1, n1, n3, n4
+  preference list n1, n2, n3, n4
   client 1 wants to add item X
     get() from n1, n2, yields ""
     n1 and n2 fail
@@ -278,7 +278,7 @@ Performance / throughput (Figure 4, 6.1)
   Figure 4 says 99.9th pctil is about 100 or 200 ms
     Why?
     "request load, object sizes, locality patterns"
-    does this mean sometimes they had to wait for coast-coast msg? 
+    does this mean sometimes they had to wait for coast-coast msg?
 
 Puzzle: why are the average delays in Figure 4 and Table 2 so low?
   Implies they rarely wait for WAN delays

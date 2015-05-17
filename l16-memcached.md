@@ -19,8 +19,12 @@ Facebook Memcached paper:
 Scaling a webapp
 ----------------
 
-Diagram (initial design for any webapp):
+Initial design for any webapp is a single webserver machine with a DB server
+running on it.
+
+Diagram (single machine: webserver and DB server)
     
+    Single machine
     -------------------
     | Web app         |
     |                 | 
@@ -29,11 +33,11 @@ Diagram (initial design for any webapp):
     |       | DB | <-----> |Disk|
     ------------------
 
- - eventually they find out they use 100% of the CPU on this box
+ - eventually they find out they use 100% of the CPU on this machine
  - `top` will tell them the CPU time is going to the web-app
 
 
-Diagram (changes):
+Diagram (multiple webserver machines, single DB machine):
     
     Web app -----
     Web app      \ -----> |DB| <-> Disk
@@ -60,7 +64,7 @@ Diagram:
    and you get database servers that become hotspots
 
 Next, you notice that most of the operations in the DB are reads (if that's
-the case. it is at Facebook)
+the case. It is at Facebook.)
 
  - it turns out you can build a very simple memory cache that can serve half
    a million requests per second
@@ -100,15 +104,15 @@ Their high level picture:
         Master region (writable)
        ----------------- 
       | Web1 Web2 ...   |
-      | MC1 MC2 ...     |
-      | DB1 DB2 ... <--- complete copy of all data
+      | MC1  MC2  ...   |
+      | DB1  DB2  ... <--- complete copy of all data
        -----------------
 
         Slave regions (read only)
        ----------------- 
       | Web1 Web2 ...   |
-      | MC1 MC2 ...     |
-      | DB1 DB2 ... <--- complete copy of all data
+      | MC1  MC2  ...   |
+      | DB1  DB2  ... <--- complete copy of all data
        -----------------
 
 The reason for having multiple data centers: parallelism across the globe
@@ -120,8 +124,8 @@ Big lessons
 
 ### Look-aside caching can be tricky
 
-This style of look-aside caching where the application looks in the cache
-to see what's there is extremely easy to add to an existing system
+This style of look-aside caching, where the application looks in the cache
+to see what's there, is extremely easy to add to an existing system
 
  - but there are some nasty consistency problems that appear when the caching
    layer is oblivious to what happens in the DB
@@ -134,7 +138,7 @@ increase throughput and take the load off the database.
  - no way the DB could've handled the load, which is 10x or 100x more than
    what the DB can access
 
-### They can tolerate state data
+### They can tolerate stale data
 
 ### They want to be able to read their own writes
 
@@ -146,7 +150,7 @@ clear why they solved it differently.
 
 ### They have enormous fan-out
 
-Each webpage they server might generate hundreds and hundreds of reads. A little
+Each webpage they serve might generate hundreds and hundreds of reads. A little
 bit surprising. So they have to do a bunch of tricks. Issue the reads in parallel.
 When a single server does this, it gets a bunch of responses back, and the amount
 of buffering in the switches and webservers is limited, so if they're not careful
@@ -462,6 +466,7 @@ Each cluster will generate a separate lease.
 
     how do they keep mc content consistent w/ DB content?
       1. DBs send invalidates (delete()s) to all mc servers that might cache
+         + Do they wait for ACK? I'm guessing no.
       2. writing client also invalidates mc in local cluster
          for read-your-writes
 
@@ -473,41 +478,41 @@ Each cluster will generate a separate lease.
 
     what were the races and fixes?
 
-    Race 1:
+    Race 1: one client's cached get(k) replaces another client's updated k
       k not in cache
-      C1 get(k), misses
-      C1 v = read k from DB
-        C2 updates k in DB
-        C2 and DB delete(k) -- does nothing
-      C1 set(k, v)
+      C1: MC::get(k), misses
+      C1: v = read k from DB
+        C2: updates k in DB
+        C2: and DB calls MC::delete(k) -- k is not cached, so does nothing
+      C1: set(k, v)
       now mc has stale data, delete(k) has already happened
       will stay stale indefinitely, until key is next written
       solved with leases -- C1 gets a lease, but C2's delete() invalidates lease,
         so mc ignores C1's set
         key still missing, so next reader will refresh it from DB
 
-    Race 2:
+    Race 2: updating(k) in cold cluster, but getting stale k from warm cluster 
       during cold cluster warm-up
       remember clients try get() in warm cluster, copy to cold cluster
       k starts with value v1
-      C1 updates k to v2 in DB
-      C1 delete(k) -- in cold cluster
-      C2 get(k), miss -- in cold cluster
-      C2 v1 = get(k) from warm cluster, hits
-      C2 set(k, v1) into cold cluster
+      C1: updates k to v2 in DB
+      C1: delete(k) -- in cold cluster
+      C2: get(k), miss -- in cold cluster
+      C2: v1 = get(k) from warm cluster, hits
+      C2: set(k, v1) into cold cluster
       now mc has stale v1, but delete() has already happened
         will stay stale indefinitely, until key is next written
       solved with two-second hold-off, just used on cold clusters
         after C1 delete(), cold ignores set()s for two seconds
         by then, delete() will propagate via DB to warm cluster
 
-    Race 3:
+    Race 3: writing to master region, but reading stale from local
       k starts with value v1
-      C1 is in a slave region
-      C1 updates k=v2 in master DB
-      C1 delete(k) -- local region
-      C1 get(k), miss
-      C1 read local DB  -- sees v1, not v2!
+      C1: is in a slave region
+      C1: updates k=v2 in master DB
+      C1: delete(k) -- local region
+      C1: get(k), miss
+      C1: read local DB  -- sees v1, not v2!
       later, v2 arrives from master DB
       solved by "remote mark"
         C1 delete() marks key "remote"
