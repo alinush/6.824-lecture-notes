@@ -57,6 +57,11 @@ Papers we read in 6.824 ([directory here](papers/)):
  19. [Bitcoin](papers/bitcoin.pdf)
  20. [AnalogicFS](papers/katabi-analogicfs.pdf)
 
+Stumbled upon
+-------------
+
+ 1. [Paxos Explained From Scratch](stumbled/paxos-explained-from-scratch.pdf)
+
 Quizzes
 -------
 
