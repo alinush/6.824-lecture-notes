@@ -116,7 +116,7 @@ Used frequently in real distributed databases.
  - B times out waiting for commit/abort after saying _no_ to prepare
    + `=>` B can abort because it knows the TC will abort everyone 
  - B times out waiting for commit/abort after saying _yes_ to prepare
-   + `=>` it said yes so TC could have received `yes` for everyone else (or not)
+   + `=>` B said yes to TC and TC could have received `yes` from everyone else (or not)
      `=>` outcome can be either commit or abort `=>` B has to wait
    + there are some lucky cases in which `B` could decide to abort/commit if 
      `A` tells it via another channel

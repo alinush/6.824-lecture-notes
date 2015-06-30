@@ -131,7 +131,7 @@ participants <code>=&gt;</code> TC can send abort</li>
 </ul></li>
 <li>B times out waiting for commit/abort after saying <em>yes</em> to prepare
 <ul>
-<li><code>=&gt;</code> it said yes so TC could have received <code>yes</code> for everyone else (or not)
+<li><code>=&gt;</code> B said yes to TC and TC could have received <code>yes</code> from everyone else (or not)
 <code>=&gt;</code> outcome can be either commit or abort <code>=&gt;</code> B has to wait</li>
 <li>there are some lucky cases in which <code>B</code> could decide to abort/commit if 
 <code>A</code> tells it via another channel</li>
