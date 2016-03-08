@@ -1,0 +1,78 @@
+6.824 2001 Lecture 23: Impractical Byzantine Agreement
+
+The problem:
+  Enemy camp.
+  Three armies, three generals, G0, G1, G2.
+  Can communicate with trustworthy messengers.
+  They need to agree on whether to attack at dawn.
+  But one of the generals might be a traitor.
+  Two loyal generals needed for victory; defeat if only one attacks.
+
+Straw man:
+  In advance the generals designate G0 as the leader.
+  G0 sends an order to each of G1 and G2.
+  RULE: G1 and G2 follow the order.
+  If G1 or G2 is the traitor, this procedure works:
+    G0 and the non-traitor both attack (or both do nothing).
+  What if G0 is the traitor?
+    G0 could tell G1 to attack, and G2 to do nothing.
+
+Can G1 and G2 detect G0's treachery by comparing notes?
+  G1 and G2 tell each other what G0 told them.
+  RULE: if Gx sees same from G0 and Gy, obey.
+    Otherwise do nothing.
+  If G0 is the traitor, this procedure will detect it.
+  But does it still work if G1 (or G2) is the traitor?
+    Suppose G0 tells both to attack.
+    G1 tells G2 "G0 told me to do nothing".
+    So G2 decides G0 is the traitor, and does nothing, while G0 attacks.
+
+Why is this problem interesting?
+  We've talked a lot about replicas: Bayou, Porcupine, DDS.
+  We've assumed replicas are fail-stop.
+    I.e. a typical failure is crash, power failure, network failure.
+  What if replica software malfunctions?
+    Sends incorrect messages, performs incorrect operations on data.
+  What if a replica is run by a malicious operator?
+
+Byzantine Agreement is what we need if replicas can't be trusted.
+  Generals == replicas.
+  Orders == update operations.
+  Single-copy correctness demands that all replicas perform the same ops.
+    In the same order.
+  So "agreement to attack" == all replicas agree on next update.
+  And traitor == a replica that wants an incorrect result:
+    Hard to forge actual operations in the real world.
+    Traitor might cause inconsistent order of operations.
+    Traitor might prevent any progress from being made.
+  Assumption of only one traitor == withstand single failure.
+    More generally, want to withstand some fraction of failures.
+
+Back to the original problem.
+  We ran into trouble trusting G1's claim "G0 told me to do nothing".
+  We can fix this with digital signatures.
+  Now the basic algorithm is:
+    G0 sends signed orders to G1 and G2.
+    G1 and G2 exchange those orders.
+    Signatures allow us to ignore fake quoted orders.
+  RULE: if Gx gets the same from G0 and Gy, obey.
+    Otherwise do nothing.
+  If G0 is the traitor and sends different orders,
+    G1 and G2 will both retreat -- OK.
+  If G1 is the traitor, what can he do?
+    Cannot forge a contrary order from G0.
+    BUT G1 can just not send anything to G2!
+    Then G0 will attack, but G2 will wait forever (and not attack).
+
+So we have the danger that delayed msgs can cause incorrect results!
+  Rather than, as expected, merely delaying execution.
+  Can we use non-receipt as a sign a general is corrupt?
+  RULE: If Gx gets cmd from G0, and nothing from Gy, follow cmd.
+    If Gx gets cmd from G0 and Gy, follow it.
+    Otherwise do nothing.
+  Then a traitorous G0 can cause incorrect operation:
+    Send "attack" to G2. Send nothing to G1.
+    G2 will time out and attack; G0 and G1 won't.
+  
+Note that we still have a problem even if G0, G1 and G2 are loyal.
+  Adversary may delay or discard messages.

@@ -1,0 +1,185 @@
+6.824 2009 Lecture 19:  Security: Byzantine Fault Tolerance
+
+Failures in labs 7 and 8:
+- Nodes crash and stop responding
+- Failure detector (heartbeater) to detect failures
+  - detector can make mistakes
+    - Network delays are arbitrary; nothing we can do about this
+  - however, detector will *eventually* remove all failed nodes
+  - this is crucial for the replication protocol to work
+
+Byzantine failure model:
+- nodes fail in *arbitrary* ways
+- often thought of as ``adversarial'' model
+  - node is compromised, attacker tries to break your protocol
+- can also handle bugs, misconfigurations, etc.
+- as before, must assume uncorrelated failures
+  - design verification + n-version programming
+- *can't* write a failure detector to eventually detect all Byzantine faults
+
+RSM Protocol from the labs:
+- 3 parts: replication protocol, view changes, recovery
+- Replication protocol:
+  - Primary sends op to all the backups
+  - Backups execute; may have to roll back via state xfer if primary fails
+  - Primary replies to client after hearing from all backups
+- View changes (Paxos)
+- Recovery:
+  - Needed if a view change caused the primary to change
+  - Correctness conditions:
+    - If the client got a reply for a request in the previous view,
+      request must carry forward to this view
+    - All replicas must agree on state of the system
+  - Any backup in the old view knows at least as much as the old primary
+    - pick one, all replicas download state from that backup
+
+Q: Do we actually need all the replicas to reply in the replication protocol?
+A: No. f+1 responses are enough, but it complicates recovery
+   - need to poll f+1 replicas, and recover from the one that is most
+     up-to-date
+   - viewstamped replication does this
+
+Today, will show how to adapt this protocol to handle Byzantine faults.
+- BFT protocol is based on viewstamped replication
+- VR (Oki&Liskov 88) is basically the same protocol as the one from the labs,
+  with the f+1 modification discussed above
+
+How many replicas do we need to handle f fail-stop faults?
+- f+1 will ensure integrity but not availability (e.g., 2PC)
+  - f nodes fail, remaining node still has the data
+- 2f+1 can ensure availability + durability (e.g., Paxos)
+  - f nodes fail, remaining f+1 are a majority and can still make decisions
+
+How many replicas do we need to handle f Byzantine faults?
+- f+1 won't work at all; f Byzantine nodes can always outvote 1 correct node
+- 2f+1 can preserve integrity *IF* we hear from all 2f+1
+  - does NOT ensure availability
+  - can't wait for last f nodes to reply; they might be Byzantine
+  - why aren't f+1 (matching) replies enough?
+    - example: f=1; replicas A, B, C; A is faulty; x is 0
+      - client 1: write x=1, get replies from A and B
+      - client 2: read x, get replies from A and C (A equivocates, says x=0)
+- 3f+1 replicas preserve integrity and availability (safety + liveness)
+  - use a quorum of 2f+1 replicas for every op (can't wait for the last f)
+  - any two quorums of 2f+1 must intersect in at least one good replica
+    - good replicas will never agree to conflicting values
+
+Q: How does this compare to SUNDR?
+
+PBFT attempt 1:
+- Use RSM protocol from lab, fixed size group of 3f+1 replicas
+- Sign all client requests and messages to handle Byzantine nodes
+- Protocol:
+  - Replication protocol:
+    - primary sends op
+    - 2f+1 replicas execute it and reply
+    - primary replies to client with 2f+1 matching responses
+  - View change and recovery protocols:
+    - do view change if it seems the primary isn't making progress
+    - will discuss later
+- Problem: Byzantine primary can send different ops to different replicas
+
+PBFT attempt 2:
+- nodes don't execute an op until they know that 2f+1 replicas have
+  assigned the same vs to the same op
+- Replication protocol:
+  Client->primary:   S_c(op)
+  Primary->replicas: S_primary(PREPREPARE(S_c(op), vs))
+  Replicas->primary: S_rep(PREPARE(op, vs))
+  Primary->replicas: { set of 2f+1 prepares } = prepared certificate
+  Replicas->Primary: S_rep(REPLY(rep, vs))
+  Primary->Client:   { set of 2f+1 replies }
+
+Q: What do replicas need to check before they can send a prepare?
+A:
+   - correct view, not in the middle of recovery / view change, etc.
+   - valid signature from client
+   - valid signature from primary
+   - already prepared all requests with lower sequence numbers (why?)
+
+Q: What is the commit point?
+A: When f+1 non-faulty replicas have a prepared certificate.
+   Need to talk about view changes to understand this.
+
+Q: Is this protocol correct?
+A: From the client's POV, no problem if it gets 2f+1 replies with
+   matching viewstamps. (This proves we reached the commit point.)
+   But the replicas have no idea when requests have committed;
+   this makes checkpoints / garbage collection impossible.
+
+NB: In the lab, we don't worry about GC or concurrent requests;
+backups don't care whether the primary executed the op or not.
+
+Full PBFT replication protocol:
+- Add a commit phase to tell the replicas that the request committed
+  in the current view. Replicas send S_rep(COMMIT(op, vs)) to the
+  primary when they have a prepared certificate, and the primary
+  forwards a set of 2f+1 commits to all the replicas.
+
+Differences between what I described and the paper:
+- the version I described uses the tentative execution optimization
+  (see sec 5.1); similar to lab 8
+- the version in the paper saves two message delays by having
+  replicas multicast prepares and commits instead of going through
+  the primary
+
+BFT View change protocol:
+- Replicas send S_rep(DOVIEWCHANGE, list of prepared certificates)
+  to the *new* primary and stop executing in the current view.
+- The new primary collects 2f+1 DOVIEWCHANGE messages and sends
+  S_p(NEWVIEW, list of 2f+1 DOVIEWCHANGE messages). It also sends
+  PREPREPARE messages for all the requests that were supposed to
+  commit in the previous view (i.e., there is a prepared certificate
+  for it in one of the DOVIEWCHANGE messages.) This ensures that all
+  requests that were supposed to commit in the previous view but
+  didn't will be carried forward to the new view.
+
+Q: What if the new primary doesn't send the right preprepares?
+A: Replicas have to check that the primary sent the right preprepares
+   based on the DOVIEWCHANGE messages that came with the NEWVIEW.
+
+Q: What if the primary sends different sets of DOVIEWCHANGE messages
+   to different replicas?
+A: Won't matter; if the req is committed, 2f+1 replicas in the old view
+   had prepared certificates for it, so the primary can't come up with
+   a set of 2f+1 DOVIEWCHANGE messages that lack that request.
+
+Q: Why is this view change protocol shorter than Paxos?
+A: Everyone already knows who the primary for view v+1 is going to be,
+   so there's nothing to agree on; replicas just need to check that
+   the new primary told everyone the right thing.
+
+NB: You can make a similar simplification in VR. Labs 7/8 need full Paxos.
+
+BFT Recovery protocol (simplified):
+- go back to the last checkpoint and roll forward
+- execute preprepares from the primary (see view change protocol)
+
+Checkpoints
+- reduce cost of new views, GC the log
+- details painful, affects design of replication and recovery protocols
+
+Protocol summary:
+- Preprepare informs replicas about a client request
+- Prepared certificate (2f+1 prepares) proves that the order
+  proposed by the primary is okay (because a quorum was willing
+  to prepare it). Does not guarantee that req will survive a VC.
+- Commit point is when f+1 non-faulty replicas have a prepared
+  certificate. (At least one of them will present the certificate
+  to the new primary in a VC.)
+- Committed certificate (2f+1 commits) proves that request committed
+  in the current view (so can execute it and forget about it at the
+  next checkpoint)
+
+Performance:
+- Table 1: trivial op 4x as expensive as unreplicated. not surprising
+- Table 3: BFT FS *faster* than unreplicated NFS. Why?
+  - no synchronous writes in the common case. Is this safe?
+
+Other optimizations:
+- Use hashes of ops if the ops are large
+- Use MACs instead of signatures (this is hard; need a different view
+  change protocol)
+- Fast reads: Client sends read-only request to all; they reply immediately
+- Only f+1 replicas execute the request; the rest just agree to the ops
+- Batching: If requests come in too fast, combine several requests into one.

@@ -31,6 +31,11 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
  * Lecture 22: [Peer-to-peer, trackerless Bittorrent and DHTs](l22-peer-to-peer.html): Chord, routing
  * Lecture 23: [Bitcoin](l23-bitcoin.html): verifiable public ledgers, proof-of-work, double spending
 
+Lectures form other years
+-------------------------
+
+ * Practical Byzantine Fault Tolerance (PBFT): [[2012]](original-notes/pbft-2012.txt), [[2011]](original-notes/pbft-2011.txt), [[2010]](original-notes/pbft-2010.txt), [[2009]](original-notes/pbft-2009.txt), [[2001]](original-notes/pbft-2001.txt), [[PPT]](original-notes/pbft.ppt)
+
 Papers
 ------
 

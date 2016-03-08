@@ -1,0 +1,255 @@
+6.824 2009 Lecture 18:  Security: Byzantine Fault Tolerance
+
+so far we have been assuming fail-stop behavior
+  computer/network either executes protocol correctly
+  or halts (and maybe repaired after a while)
+
+even fail-stop is hard to cope with
+  did the server crash, or is the network broken?
+  is the network broken, or just delaying packets?
+  is the network partitioned?
+  what if fail-stop failures/repair so frequent we can do no work?
+  if system is quiet for a while,
+    ping+paxos will produce a useful configuration
+
+now we're going to be more ambitious
+  use replication to help with security
+
+what is Byzantine behavior?
+  a larger set of ways in which a computer can misbehave
+  includes fail-stop faults
+  plus bugs (i.e. incorrect execution)
+  plus intentional malice
+  plus conspiracies -- multiple bad nodes cooperating to trick the good ones
+  (devious, surreptitious)
+
+what kinds of Byzantine behaviour could cause trouble in the labs?
+  lock server primary gives away same lock to multiple clients
+  lock server backup responds to pings, but does nothing else
+    will be kept in Paxos config, but will prevent progress
+  backup might fake a double-grant from primary,
+    trick system administrator into thinking primary is faulty,
+    thus trick admin into replacing good primary with malicious backup
+  backup DDoSs primary, Paxos causes backup to take over as primary,
+    then gives away locks to multiple clients
+
+specific assumptions in the paper's Byzantine fault model
+  network can delay, duplicate, re-order, or drop any message
+  "faulty" vs "non-faulty" replicas
+  faulty replicas may be controlled by a malicious attacker
+  the attacker:
+    supplies the code that faulty replicas run
+    knows the code the non-faulty replicas are running
+    can read network messages
+    cannot guess non-faulty replicas' cryptographic keys
+    knows the faulty replicas' keys
+    can force messages to be delayed
+
+how can we possibly cope with Byzantine replicas?
+  assume no more than some fraction of replicas are faulty
+
+the basic Byzantine fault tolerance approach
+  replicated state machines
+  ask them all to do each operation
+  compare answers from replicas
+  if enough agree, perhaps that's the correct answer
+
+straw man 1:
+  [client, n servers]
+  n servers
+  client sends request to all of them
+  waits for all n to reply
+  only proceeds if all n agree
+  why might this not work well?
+    faulty replica can stop progress by disagreeing
+
+straw man 2:
+  let's have replicas vote
+  2f+1 servers, assume no more than f are faulty
+  if client gets f+1 matching replies, success
+    otherwise, failure
+  why might this not work well?
+    client can't wait for replies from the last f replicas
+      they might be faulty, never going to reply
+    so must be able to make a decision after n-f replies, or f+1 if n=2f+1
+    but f of the first f+1 replies might be from faulty replicas!
+      i.e. f+1 is not enough to vote
+      also waiting for f+1 of 2f+1 doesn't ensure that majority of good nodes executed
+
+straw man 3:
+  3f+1 servers, of which at most f are faulty
+  client waits for 2f+1 replies
+  client takes majority of those 2f+1
+  why does this work? informally...
+    client will get at least 2f+1 replies: all non-faulty replicas eventually respond
+    at most f of 2f+1 are faulty
+    the f+1 non-faulty replicas will agree on the answer
+ 
+what about handling multiple clients?
+  non-faulty replicas must process operations in the same order!
+
+let's use a primary to choose operation order
+  picks an order and assigns sequence numbers
+  for now, assume primary is non-faulty
+
+straw man 4: with primary
+  pick sequence #
+  send *signed* message to each replica (including itself)
+    from here on, every message signed by sender using public key crypto
+  wait for 2f+1 replies
+  f+1 must match
+  reply to client
+
+  REQ  MSG  REP  REP
+C
+0
+1
+2
+3
+
+what if the primary is faulty?
+  it might send different operations to different replicas
+  or send them in different orders to different replicas
+  or send a wrong result to the client
+  or do nothing
+
+general approach to handling faulty primary
+  clients notify replicas of each operation, as well as primary
+  each replica watches progress of each operation
+  if no progress, force view change -> new primary
+  view change must sort out state of last operation
+
+can a replica execute an operation when it first receives it from primary?
+  no: maybe primary gave different ops to different replicas
+  if we execute before we're sure, we've wrecked the replica's state
+  so we need a second round of messages to make sure all good replicas got the same op
+
+straw man 5:
+  3f+1 servers, one is primary, f faulty, primary might be faulty
+  client sends request to primary AND to each replica
+  primary sends PRE-PREPARE(op, n) to replicas
+  each replica sends PREPARE(op, n) to all replicas
+  if replica gets PREPARE(op, n) from 2f+1 replicas (incl itself)
+    (with same op and n)
+    execute the operation, possibly modifying state
+    send reply to client
+  client is happy when it gets f+1 matching replies
+
+  REQ  PRE-P  PREPARE  REPLY
+C
+0
+1
+2
+3
+
+does this cope with the primary sending different ops to different replicas?
+  yes: replicas won't see 2f+1 matching PREPAREs
+  also handles primary assigning different sequence #s
+  result: system will stop
+
+does this cope with the primary lying to the client about the reply?
+  yes: each replica sends a reply, not the primary
+  result: system will stop
+
+does this cope with the primary not sending operations to replicas?
+  yes: replicas receive request from the client
+    but don't see a PRE-PREPARE, or don't see a PREPARE
+  result: system will stop
+
+how to resume operation after faulty client?
+  need a view change to choose new primary
+  view change does *not* choose a set of "live" servers
+    2f+1 of 3f+1 deals with faulty servers
+
+when to trigger a view change?
+  if a replica sees a client op but doesn't see 2f+1 matching PREPAREs
+
+if faulty replicas try to trigger a view change to shoot down non-faulty primary?
+  require view change requests from 2f+1 replicas
+  
+who is the next primary?
+  need to make sure faulty replicas can't always make themselves next primary
+  view number v
+  primary is v mod n
+  so primary rotates among servers
+  at most f faulty primaries in a row
+
+view change straw man
+  replicas send VIEW-CHANGE requests to *new* primary
+  new primary waits for 2f+1 view-change requests
+  new primary announces view change w/ NEW-VIEW
+    includes the 2f+1 VIEW-CHANGE requests
+    as proof that enough replicas wanted to change views
+  new primary starts numbering operations at last n it saw + 1
+
+will all non-faulty replicas agree about operation numbering across view change?
+
+problem:
+  I saw 2f+1 PREPAREs for operation n, so I executed it
+  new primary did not, so it did not execute it
+  maybe new primary didn't even see the PRE-PREPARE for operation n
+    since old primary only waited for 2f+1 replies
+    or old primary may never have sent PRE-PREARE to next primary
+  thus new primary may start numbering at n, yielding two different op #n
+
+can new primary ask all replicas for set of operations they have executed?
+  doesn't work: new primary can only wait for 2f+1 replies
+    faulty replicas may reply, so new primary may not wait for me
+
+solution:
+  don't execute operation until sure a new primary will hear about it
+  add a third phase: PRE-PREPARE, PREPARE, then COMMIT
+  only execute after commit
+
+operation protocol:
+  client sends op to primary
+  primary sends PRE-PREPARE(op, n) to all
+  all send PREPARE(op, n) to all
+  after replica receives 2f+1 matching PREPARE(op, n)
+    send COMMIT(op, n) to all
+  after receiving 2f+1 matching COMMIT(op, n)
+    execute op
+
+view change:
+  each replica sends new primary 2f+1 PREPAREs for recent ops (if it has them)
+  new primary waits for 2f+1 VIEW-CHANGE requests
+  new primary sends NEW-VIEW msg to all replicas with
+    complete set of VIEW-CHANGE msgs
+    list of every op for which some VIEW-CHANGE contained 2f+1 PREPAREs
+    i.e. list of final ops from last view
+
+informal argument why if a replica executes an op, new primary will know of that op
+  replica only executed after receiving 2f+1 COMMITS
+  maybe f of those were lies, from faulty replicas, who won't tell new primary
+  but f+1 COMMITs were from replicas that got matching PREPAREs from 2f+1 replicas
+  new primary waits for view-change requests from 2f+1 replicas
+  at least 1 of those f+1 will report PREPARE set to the new primary
+
+can a replica trick new primary into believing a manufactured op?
+  no -- replica must present 2f+1 PREPAREs for that op
+  the PREPAREs must have the original signatures
+  so the non-faulty nodes must have seen that op
+
+can the new primary omit some of the reported recent operations?
+  replicas must check that the primary announced the right set
+  compare against NEW-VIEW PREPARE info included in the VIEW-CHANGE
+
+paper also discusses
+  checkpoints and logs to help good nodes recover
+  various cryptographic optimizations
+  optimizations to reduce # of msgs in common case
+  fast read-only operations
+
+what are the consequences of more than f corrupt servers?
+  can the system recover?
+
+suppose a single server has a fail-stop fault (e.g. powered off)
+  can the system still survive f additional malicious faulty nodes?
+  will it be live?
+  can bad nodes trick it into executing incorrect operations?
+
+what if the client is corrupt?
+
+suppose we had a technique to provide Byzantine fault tolerance (BFT)
+  would it be useful to apply it to a set of identical servers?
+  how about non-identical servers run by same organization?
