@@ -65,6 +65,8 @@ Papers we read in 6.824 ([directory here](papers/)):
 Stumbled upon
 -------------
 
+ 1. [Distributed systems theory for the distributed systems engineer](http://the-paper-trail.org/blog/distributed-systems-theory-for-the-distributed-systems-engineer/)
+ 1. [Distributed Systems: For fun and Profit](http://book.mixu.net/distsys/)
  1. [Paxos Explained From Scratch](stumbled/paxos-explained-from-scratch.pdf)
 
 Quizzes

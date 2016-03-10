@@ -148,9 +148,9 @@ Resemblance to Paxos?
  - While 2PC helps a set of servers reach agreement, it it not fault tolerant
    or available (it cannot proceed when servers are down)
  - You might think you can do the calendar scheduling with Paxos by having both
-   servers agree on the schedule op. However, while agreeing on the op will work
-   committing the op will not: what if one server's user is busy during the
-   scheduled time, it cannot commit the op. While the other one might be able
+   servers agree on the schedule op. However, while agreeing on the op will work,
+   committing the op will not. For instance, what if one server's user is busy during the
+   scheduled time? Then it cannot commit the op while the other one might be able
    to. Paxos doesn't help solve that conflict.
 
 Atomic distributed transactions: write your transaction code without thinking
