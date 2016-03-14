@@ -66,7 +66,9 @@ Other papers:
 
  1. [Impossibility of Distributed Consensus with One Faulty Process](papers/flp.pdf)
     + See page 5, slide 10 [here](stumbled/flp-consensus.pdf) to understand Lemma 1 (commutativity) faster
+    + See [this article here](http://the-paper-trail.org/blog/a-brief-tour-of-flp-impossibility/) for an alternative explanation.
  1. [Practical Byzantine Fault Tolerance (PBFT)](papers/pbft.pdf)
+    + See [discussion here on PBFT](http://the-paper-trail.org/blog/barbara-liskovs-turing-award-and-byzantine-fault-tolerance/#more-211).
 
 Stumbled upon
 -------------
