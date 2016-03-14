@@ -62,6 +62,12 @@ Papers we read in 6.824 ([directory here](papers/)):
  19. [Bitcoin](papers/bitcoin.pdf)
  20. [AnalogicFS](papers/katabi-analogicfs.pdf)
 
+Other papers:
+
+ 1. [Impossibility of Distributed Consensus with One Faulty Process](papers/flp.pdf)
+    + See page 5, slide 10 [here](stumbled/flp-consensus.pdf) to understand Lemma 1 (commutativity) faster
+ 1. [Practical Byzantine Fault Tolerance (PBFT)](papers/pbft.pdf)
+
 Stumbled upon
 -------------
 
