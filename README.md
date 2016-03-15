@@ -76,6 +76,8 @@ Stumbled upon
  1. [A brief history of consensus, 2PC and transaction commit](http://betathoughts.blogspot.com/2007/06/brief-history-of-consensus-2pc-and.html)
  1. [Distributed systems theory for the distributed systems engineer](http://the-paper-trail.org/blog/distributed-systems-theory-for-the-distributed-systems-engineer/)
  1. [Distributed Systems: For fun and Profit](http://book.mixu.net/distsys/)
+ 1. [You can't choose CA out of CAP](https://codahale.com/you-cant-sacrifice-partition-tolerance/), or "You can't sacrifice partition tolerance"
+ 1. [Notes on distributed systems for young bloods](https://www.somethingsimilar.com/2013/01/14/notes-on-distributed-systems-for-young-bloods/)
  1. [Paxos Explained From Scratch](stumbled/paxos-explained-from-scratch.pdf)
 
 Quizzes
