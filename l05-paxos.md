@@ -117,7 +117,7 @@ The **basic idea**:
  - protocol does **not** require designated proposers or leaders for correctness
    + these only help w/ performance
    + low probability of proposing "livelock" that can be overcome by having proposers wait a random amount of time
- - once a Paxos node agrees on a value it never changes it mind
+ - once a Paxos node agrees on a value it never changes its mind
 
 Example:
 
