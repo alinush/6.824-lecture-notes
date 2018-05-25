@@ -1,0 +1,181 @@
+<h1>Lab 4: Part A</h1>
+
+<h2>Details</h2>
+
+<p>Partition/shard keys over a set of replica groups. Each replica group handles
+puts and gets for a # of shards. Groups operate in parllel => higher system
+throughput.</p>
+
+<p>Components:</p>
+
+<ul>
+<li>a set of replica groups
+<ul>
+<li>each replica group is responsible for a subset of the shards</li>
+</ul></li>
+<li>a shardmaster
+<ul>
+<li>decides which replica group should serve each shard</li>
+<li>configuration changes over time</li>
+<li>clients contact shard master, find replica group</li>
+<li>replica groups consult the master, to find out what shards to serve</li>
+<li>single-service, replicated using Paxos</li>
+</ul></li>
+</ul>
+
+<p>All replica group members must agree an whether Get/Put happened before/after a reconfiguration <code>=&gt;</code> store Put/Get/Append + reconfigurations in Paxos log</p>
+
+<p>Reasonable to assume each replica group is always available (because of Paxos replication) <code>=&gt;</code> simpler than primary/backup replication when primary goes down and still thinks it's primary</p>
+
+<h2>Shardmaster</h2>
+
+<ul>
+<li>manages a <em>sequence of numbered configurations</em>
+<ul>
+<li><code>config = set of {replica group}, assignment of shards to {replica group}</code></li>
+</ul></li>
+<li>RPC interface
+<ul>
+<li><code>Join(gid, servers)</code>
+<ul>
+<li>takes a replica group ID and an array of servers for that group</li>
+<li>adds the new replica group </li>
+<li>rebalances the shards across all replicas</li>
+<li>returns a new configuration that includes the new replica group</li>
+</ul></li>
+<li><code>Leave(gid)</code>
+<ul>
+<li>takes a replica group ID</li>
+<li>removes that replica group</li>
+<li>rebalances the shards across all remaining replicas</li>
+</ul></li>
+<li><code>Move(shardno, gid)</code>
+<ul>
+<li>takes a shard # and a replica group ID</li>
+<li>reassigns the shard from its current replica group to the specified 
+replica group</li>
+<li>subsequent <code>Join</code>'s or <code>Leave</code>'s can undo the work done by <code>Move</code>
+because they rebalance</li>
+</ul></li>
+<li><code>Query(configno)</code>
+<ul>
+<li>returns the configuration with that number</li>
+<li>if <code>configno == -1</code> or <code>configno</code> is bigger than the biggest known
+config number, then return the latest configuration</li>
+<li><code>Query(-1)</code> should reflect every Join, Leave or Move that completed before
+the <code>Query(-1)</code> RPC was sent</li>
+</ul></li>
+</ul></li>
+<li>rebalancing should divide the shards as evenly as possible among the
+groups and move as few shards (not data?) as possible in the process
+<ul>
+<li><code>=&gt;</code> only move shard from one group to another "wisely"</li>
+</ul></li>
+<li><strong>No need for duplicate detection</strong>, in practice you would need to!</li>
+<li>the first configuration has #0, contains <em>no groups</em>, all shards assigned
+to GID 0 (an invalid GID)</li>
+<li>typically much more shards than groups</li>
+</ul>
+
+<h2>Hints</h2>
+
+<h1>Lab 4: Part B</h1>
+
+<h2>Notes</h2>
+
+<p>We supply you with client.go code that sends each RPC to the replica group responsible for the RPC's key. It re-tries if the replica group says it is not responsible for the key; in that case, the client code asks the shard master for the latest configuration and tries again. You'll have to modify client.go as part of your support for dealing with duplicate client RPCs, much as in the kvpaxos lab.</p>
+
+<p><strong>TODO:</strong> Xid's across different replica groups? How do those work? We can execute
+an op on one replica group and be told "wrong" replica, when we take that op
+to another group we don't ever want to be told "duplicate op", just because
+we talked to another replica.</p>
+
+<h2>Plan</h2>
+
+<p>Clients's transaction ID (xid) should be <code>&lt;clerkID, shardNo, seqNo&gt;</code>, where <code>seqNo</code>
+autoincrements, so that when we transfer shards from one group to another, the xids <br />
+of the ops for the transferred shards will not conflict with existing xids on
+the other group.</p>
+
+<p>When configuration doesn't change, things stay simple, even when servers go down:</p>
+
+<ul>
+<li>clients find out which GID to contact</li>
+<li>clients send Op to GID</li>
+<li>GID agree on Op using paxos
+<ul>
+<li>if a GID server goes down, that's fine, we have paxos </li>
+</ul></li>
+</ul>
+
+<h2>Hints</h2>
+
+<p><strong>Hint:</strong> your server will need to periodically check with the shardmaster to
+see if there's a new configuration; do this in <code>tick()</code>.</p>
+
+<p><strong>TODO:</strong> If there was a configuration change, could we have picked it up too late?
+What if we serviced requests?</p>
+
+<p><strong>Hint:</strong> you should have a function whose job it is to examine recent entries
+in the Paxos log and apply them to the state of the shardkv server. Don't
+directly update the stored key/value database in the Put/Append/Get handlers;
+instead, attempt to append a Put, Append, or Get operation to the Paxos log, and
+then call your log-reading function to find out what happened (e.g., perhaps a
+reconfiguration was entered in the log just before the Put/Append/Get).</p>
+
+<p><strong>TODO:</strong> Right now I only applyLog when I receive a Get. Gotta be sure I can 
+reconfigure in the middle of a <code>Get</code> request.</p>
+
+<p><strong>Hint:</strong> your server should respond with an <code>ErrWrongGroup</code> error to a client RPC
+with a key that the server isn't responsible for (i.e. for a key whose shard is
+not assigned to the server's group). Make sure your Get/Put/Append handlers make
+this decision correctly in the face of a concurrent re-configuration.</p>
+
+<ul>
+<li>seems like you can only check what shard you are responsible for at log apply
+time</li>
+<li><code>=&gt;</code> ops must wait</li>
+</ul>
+
+<p><strong>Hint:</strong> process re-configurations one at a time, in order.</p>
+
+<p><strong>Hint:</strong> during re-configuration, replica groups will have to send each other
+the keys and values for some shards.</p>
+
+<p><strong>TODO:</strong> What if servers go down during this? Can I still agree on ops during this? Seems like it.</p>
+
+<ul>
+<li>maybe we can share the keys and values via the log?</li>
+</ul>
+
+<p><strong>Hint:</strong> When the test fails, check for gob error (e.g. "rpc: writing response:
+gob: type not registered for interface ...") in the log because go doesn't
+consider the error fatal, although it is fatal for the lab.</p>
+
+<p><strong>Hint:</strong> Be careful about implementing at-most-once semantic for RPC. When a
+server sends shards to another, the server needs to send the clients state as
+well. Think about how the receiver of the shards should update its own clients
+state. Is it ok for the receiver to replace its clients state with the received
+one?</p>
+
+<p><strong>TODO:</strong> What is this client state?? Is it the XIDs associated with the log ops?
+I think they mean the lastXid[clerkID] map. Servers in G1 could have lastXid[c, shard] = i
+and servers in G2 could have lastXid[c, shard] = j. </p>
+
+<p><strong>Hint:</strong> Think about how should the shardkv client and server deal with
+ErrWrongGroup. Should the client change the sequence number if it receives
+ErrWrongGroup? Should the server update the client state if it returns
+ErrWrongGroup when executing a Get/Put request?</p>
+
+<p><strong>TODO:</strong> This gets to my question from the "Notes" section...</p>
+
+<p><strong>Hint:</strong> After a server has moved to a new view, it can leave the shards that
+it is not owning in the new view undeleted. This will simplify the server
+implementation.</p>
+
+<p><strong>Hint:</strong> Think about when it is ok for a server to give shards to the other
+server during view change.</p>
+
+<p><strong>TODO:</strong> Before applying the new configuration change?</p>
+
+<h2>Algorithm</h2>

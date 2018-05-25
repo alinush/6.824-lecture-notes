@@ -1,0 +1,372 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<link rel="StyleSheet" href="style.css" type="text/css">
+<title>6.824 Lab 1: MapReduce</title>
+</head>
+
+<body>
+<div align="center">
+<h2><a href="../index.html">6.824</a> - Spring 2015</h2>
+</div>
+
+<div align="center">
+<h1>6.824 Lab 1: MapReduce</h1>
+</div>
+
+
+<div align="center">
+<h3>Due: Mon Feb 9, 11:59pm</h3>
+</div>
+
+<hr>
+
+<h3>Introduction</h3>
+
+<p> In this lab you'll build a MapReduce library as a way to learn the Go
+programming language and as a way to learn about fault tolerance in distributed
+systems. In the first part you will write a simple MapReduce program.  In the
+second part you will write a Master that hands out jobs to workers, and handles
+failures of workers.  The interface to the library and the approach to fault
+tolerance is similar to the one described in the original <a
+ href="http://research.google.com/archive/mapreduce-osdi04.pdf">MapReduce paper</a>.
+
+
+<h3>Collaboration Policy</h3>
+
+You must write all the code you hand in for 6.824, except for code
+that we give you as part of the assignment. You are not allowed to
+look at anyone else's solution, and you are not allowed to look at
+code from previous years. You may discuss the assignments with other
+students, but you may not look at or copy each others' code. Please do
+not publish your code or make it available to future 6.824 students --
+for example, please do not make your code visible on github.
+
+<h3>Software</h3>
+
+You'll implement this lab (and all the labs) in <a
+  href="http://www.golang.org/">Go</a>. The Go web site
+ contains lots of tutorial information which you may want to look at.
+
+<p>
+We supply
+you with a non-distributed MapReduce implementation, and a partial
+implementation of a distributed implementation (just the boring bits).
+You'll fetch the initial lab software with
+<a href="http://git.or.cz/">git</a>
+(a version control system).
+To learn more about git, look at the
+<a href="http://www.kernel.org/pub/software/scm/git/docs/user-manual.html">git
+user's manual</a>, or, if you are already familiar with other version control
+systems, you may find this
+<a href="http://eagain.net/articles/git-for-computer-scientists/">CS-oriented
+overview of git</a> useful.
+
+<p>
+The URL for the course git repository is
+<tt>git://g.csail.mit.edu/6.824-golabs-2015</tt>.
+To install the files in your Athena account, you need to <i>clone</i>
+the course repository, by running the commands below.  You must use an
+x86 or x86_64 Athena machine; that is, <tt>uname -a</tt> should
+mention <tt>i386 GNU/Linux</tt> or <tt>i686 GNU/Linux</tt> or 
+<tt>x86_64 GNU/Linux</tt>.  You can
+log into a public i686 Athena host with
+<tt>athena.dialup.mit.edu</tt>.
+
+<pre>
+$ add git
+$ git clone git://g.csail.mit.edu/6.824-golabs-2015 6.824
+$ cd 6.824
+$ ls
+Makefile src
+$ 
+</pre>
+
+<p>
+Git allows you to keep track of the changes you make to the code.
+For example, if you want
+to checkpoint your progress, you can <emph>commit</emph> your changes
+by running:
+<pre>
+$ git commit -am 'partial solution to lab 1'
+$ 
+</pre>
+
+<h3>Getting started</h3>
+
+<p> There is an input file <tt>kjv12.txt</tt> in ~/6.824/src/main, which was
+downloaded from <a
+ href="https://web.archive.org/web/20130530223318/http://patriot.net/~bmcgin/kjv12.txt">here</a>.
+Compile the initial software we provide you and run it with the downloaded input
+file:
+
+<pre>
+$ add 6.824
+$ export GOPATH=$HOME/6.824
+$ cd ~/6.824/src/main
+$ go run wc.go master kjv12.txt sequential
+# command-line-arguments
+./wc.go:11: missing return at end of function
+./wc.go:15: missing return at end of function
+</pre>
+
+<p>The compiler produces two errors, because the implementation of the
+<tt>Map</tt> and <tt>Reduce</tt> functions is incomplete.
+
+<h3>Part I: Word count</h3>
+
+<p>Modify <tt>Map</tt> and <tt>Reduce</tt> so that <tt>wc.go</tt> reports the
+number of occurrences of each word in alphabetical order.
+<pre>
+$ go run wc.go master kjv12.txt sequential
+Split kjv12.txt
+Split read 4834757
+DoMap: read split mrtmp.kjv12.txt-0 966954
+DoMap: read split mrtmp.kjv12.txt-1 966953
+DoMap: read split mrtmp.kjv12.txt-2 966951
+DoMap: read split mrtmp.kjv12.txt-3 966955
+DoMap: read split mrtmp.kjv12.txt-4 966944
+DoReduce: read mrtmp.kjv12.txt-0-0
+DoReduce: read mrtmp.kjv12.txt-1-0
+DoReduce: read mrtmp.kjv12.txt-2-0
+DoReduce: read mrtmp.kjv12.txt-3-0
+DoReduce: read mrtmp.kjv12.txt-4-0
+DoReduce: read mrtmp.kjv12.txt-0-1
+DoReduce: read mrtmp.kjv12.txt-1-1
+DoReduce: read mrtmp.kjv12.txt-2-1
+DoReduce: read mrtmp.kjv12.txt-3-1
+DoReduce: read mrtmp.kjv12.txt-4-1
+DoReduce: read mrtmp.kjv12.txt-0-2
+DoReduce: read mrtmp.kjv12.txt-1-2
+DoReduce: read mrtmp.kjv12.txt-2-2
+DoReduce: read mrtmp.kjv12.txt-3-2
+DoReduce: read mrtmp.kjv12.txt-4-2
+Merge phaseMerge: read mrtmp.kjv12.txt-res-0
+Merge: read mrtmp.kjv12.txt-res-1
+Merge: read mrtmp.kjv12.txt-res-2
+</pre>
+
+<p>The output will be in the file "mrtmp.kjv12.txt".  Your implementation is
+correct if the following command produces the following top 10 words:
+<pre>
+$ sort -n -k2 mrtmp.kjv12.txt | tail -10
+unto: 8940
+he: 9666
+shall: 9760
+in: 12334
+that: 12577
+And: 12846
+to: 13384
+of: 34434
+and: 38850
+the: 62075
+</pre>
+
+<p>To make testing easy for you, run:
+<pre>
+$ sh ./test-wc.sh
+</pre>
+and it will report if your solution is correct or not.
+
+<p>Before you start coding read Section 2 of the <a
+ href="http://research.google.com/archive/mapreduce-osdi04.pdf">MapReduce
+paper</a>. Your <tt>Map()</tt> and <tt>Reduce()</tt> functions
+will differ a bit from those in the paper's Section 2.1. Your <tt>Map()</tt>
+will be passed some of the text from the file; it should split it
+into words, and return a <tt>list.List</tt> of key/value
+pairs, of type <tt>mapreduce.KeyValue</tt>. Your <tt>Reduce()</tt> will be
+called once for each key, with a list of all the values generated
+by <tt>Map()</tt> for that key; it should return a single output value.
+
+<p>
+It will help to read
+our code for mapreduce, which is in <tt>mapreduce.go</tt> in
+package <tt>mapreduce</tt>.  Look at
+<tt>RunSingle()</tt> and the functions it calls.
+This well help you to
+understand what MapReduce does and to learn Go by example.
+
+<p>Once you understand this code, implement <tt>Map</tt> and <tt>Reduce</tt> in
+<tt>wc.go</tt>.
+
+<p>
+Hint: you can use
+<a href="http://golang.org/pkg/strings/#FieldsFunc"><tt>strings.FieldsFunc</tt></a>
+to split a string into components.</p>
+<p>
+Hint: for the purposes of this exercise, you can consider a word to be
+any contiguous sequence of letters, as determined by
+<a
+href="http://golang.org/pkg/unicode/#IsLetter"><tt>unicode.IsLetter</tt></a>.
+A good read on what strings are in Go is the <a
+href="http://blog.golang.org/strings">Go Blog on strings</a>.
+</p>
+
+<p>Hint: the strconv package (http://golang.org/pkg/strconv/) is handy to
+convert strings to integers etc.
+</p>
+
+<p>You can remove the output file and all intermediate files with:
+<pre>
+$ rm mrtmp.*
+</pre>
+
+<h3>Part II: Distributing MapReduce jobs</h3>
+
+<p>
+In this part you will complete a version of mapreduce that splits the
+work up over a set of worker threads, in order to exploit multiple
+cores. A master thread hands out work to the workers and waits for
+them to finish. The master should communicate with the workers via
+RPC. We give you the worker code (<tt>mapreduce/worker.go</tt>), the
+code that starts the workers, and code to deal with RPC messages
+(<tt>mapreduce/common.go</tt>).
+
+<p>
+Your job is to complete <tt>master.go</tt> in the <tt>mapreduce</tt>
+package.  In particular, you should modify <tt>RunMaster()</tt> in
+<tt>master.go</tt> to hand out the map and reduce jobs to workers,
+and return only when all the jobs have finished.
+
+<p>
+Look at
+<tt>Run()</tt> in <tt>mapreduce.go</tt>. It calls <tt>Split()</tt> to
+split the input into per-map-job files, then calls
+your <tt>RunMaster()</tt> to run the map and reduce jobs, then
+calls <tt>Merge()</tt> to assemble the per-reduce-job outputs into a
+single output file. <tt>RunMaster</tt> only needs to tell the workers
+the name of the original input file (<tt>mr.file</tt>) and the job
+number; each worker knows from which files to read its input and to
+which files to write its output.
+
+<p>
+Each worker sends a Register RPC to the master when it starts.
+<tt>mapreduce.go</tt> already implements the master's
+<tt>MapReduce.Register</tt> RPC handler for you, and passes the new
+worker's information to <tt>mr.registerChannel</tt>.  Your <tt>RunMaster</tt>
+should process new worker registrations by reading from this channel.
+
+<p>
+Information about the MapReduce job is in the <tt>MapReduce</tt> struct,
+defined in <tt>mapreduce.go</tt>.  Modify the <tt>MapReduce</tt> struct to
+keep track of any additional state (e.g., the set of available workers),
+and initialize this additional state in the <tt>InitMapReduce()</tt>
+function.  The master does not need to know which Map or Reduce functions
+are being used for the job; the workers will take care of executing the
+right code for Map or Reduce.
+
+<p>
+You should run your code using Go's unit test system. We supply you
+with a set of tests in <tt>test_test.go</tt>. You run unit tests in a
+package directory (e.g., the mapreduce directory) as follows:
+
+<pre>
+$ cd mapreduce
+$ go test
+</pre>
+
+<p>
+You are done with Part II when your implementation passes the first test (the
+"Basic mapreduce" test) in <tt>test_test.go</tt> in the <tt>mapreduce</tt>
+package.  You don't yet have worry about failures of workers.
+
+<p>The master should send RPCs to the workers in parallel so that the workers
+can work on jobs concurrently.  You will find the <tt>go</tt> statement useful
+for this purpose and the <a href="http://golang.org/pkg/net/rpc/">Go RPC
+documentation</a>.
+
+<p>The master may have to wait for a worker to finish before it can hand out
+more jobs.  You may find channels useful to synchronize threads that are waiting
+for reply with the master once the reply arrives.  Channels are explained in the
+document on <a
+ href="http://golang.org/doc/effective_go.html#concurrency">Concurrency in
+Go</a>.
+
+<p>
+The easiest way to track down bugs is to insert log.Printf()
+statements, collect the output in a file with <tt>go test &gt;
+out</tt>, and then think about whether the output matches your
+understanding of how your code should behave. The last step (thinking)
+is the most important.
+
+<p>
+The code we give you runs the workers as threads within a single UNIX
+process, and can exploit multiple cores on a single machine. Some
+modifications would be needed in order to run the workers on multiple
+machines communicating over a network. The RPCs would have to use TCP
+rather than UNIX-domain sockets; there would need to be a way to start
+worker processes on all the machines; and all the machines would have
+to share storage through some kind of network file system.
+
+<h3>Part III: Handling worker failures</h3>
+
+<p>In this part you will make the master handle failed workers.
+MapReduce makes this relatively easy
+because workers don't have persistent state.  If a
+worker fails, any RPCs that the master issued to that worker will fail
+(e.g., due to a timeout).  Thus, if the master's RPC to the worker fails,
+the master
+should re-assign the job given to the failed worker to another worker.
+
+<p>An RPC failure doesn't necessarily mean that the worker failed; the worker
+may just be unreachable but still computing.  Thus, it may happen that two
+workers receive the same job and compute it.  However, because jobs are
+idempotent, it doesn't matter if the same job is computed twice---both times it
+will generate the same output.  So, you don't have to anything special for this
+case. (Our tests never fail workers in the middle of job, so you don't even have
+to worry about several workers writing to the same output file.)
+
+<p>You don't have to handle failures of the master; we will assume it won't
+fail. Making the master fault-tolerant is more difficult because it keeps
+persistent state that would have to be recovered in order to resume
+operations after a master failure.
+Much of the later labs are devoted to this challenge.
+
+<p>Your implementation must pass the two remaining test cases in
+<tt>test_test.go</tt>.  The first case tests the failure of one worker.  The
+second test case tests handling of many failures of workers.  Periodically, the
+test cases start new workers that the master can use to make forward progress,
+but these workers fail after handling a few jobs.
+
+<h3>Handin procedure</h3>
+
+<p>Submit your code via the class's submission website, located here:
+
+<p><a href="https://6824.scripts.mit.edu:444/submit/handin.py/">https://6824.scripts.mit.edu:444/submit/handin.py/</a>
+
+<p>
+You may use your MIT Certificate or request an API key via email to
+log in for the first time.
+Your API key (XXX) is displayed once you logged in, which can
+be used to upload lab1 from the console as follows.
+
+<pre>
+$ cd ~/6.824
+$ echo XXX > api.key
+$ make lab1
+</pre>
+
+You can check the submission website to check if your submission is successful.
+
+<p>You will receive full credit if your software passes
+the <tt>test_test.go</tt> tests when we run your software on our
+machines.  We will use the timestamp of your <strong>last</strong>
+submission for the purpose of calculating late days.
+
+<hr>
+
+<address>
+Please post questions on <a href="http://piazza.com">Piazza</a>.
+<p>
+
+</address>
+
+ </body>
+ </html>
+
+<!--  LocalWords:  Paxos Sharded shard sharding sharded Put's src shardmaster
+ -->
+<!--  LocalWords:  shardkv cd TestBasic TestUnreliable Go's RPCs RPC's GID px
+ -->
+<!--  LocalWords:  kvpaxos Config ErrWrongGroup Handin gzipped czvf whoami tgz
+ -->

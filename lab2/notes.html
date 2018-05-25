@@ -1,0 +1,445 @@
+<h1>A fault-tolerant key/value service </h1>
+
+<ul>
+<li>using a form of primary/backup replication. </li>
+<li>ensure that all parties (clients and servers) agree on which server is the
+primary, and which is the backup</li>
+<li>introduce a kind of master server, called the viewservice. </li>
+<li>the viewservice monitors whether each available server is alive or dead. 
+<ul>
+<li>if the current primary or backup becomes dead, viewservice selects a server
+to replace it</li>
+<li>a client checks with the viewservice to find the current primary</li>
+<li>the servers cooperate with the viewservice to ensure that at most one
+primary is active at a time.</li>
+</ul></li>
+</ul>
+
+<h3>Key/value service will allow replacement of failed servers</h3>
+
+<ul>
+<li>if primary fails, viewservice will promote backup to be primary</li>
+<li>if the backup fails, or is promoted, and there is an idle server available
+the viewservice will cause it to be the backup</li>
+<li>the primary will send its complete database to the new backup
+<ul>
+<li>and then send subsequent <code>Puts</code> to the backup to ensure that the backup's 
+key/value database remains identical to the primary's.</li>
+</ul></li>
+</ul>
+
+<p>It turns out the primary must send <code>Gets</code> as well as <code>Puts</code> to the backup
+(if there is one), and must wait for the backup to reply before responding to 
+the client. </p>
+
+<p>This helps prevent two servers from acting as primary (a "split brain"). </p>
+
+<p>An example:</p>
+
+<ul>
+<li><code>S1</code> is the primary and <code>S2</code> is the backup. </li>
+<li>The view service decides (incorrectly) that <code>S1</code> is dead, and promotes S2 to
+be primary.</li>
+<li>If a client thinks <code>S1</code> is still the primary and sends it an operation, <code>S1</code>
+will forward the operation to <code>S2</code>, and <code>S2</code> will reply with an error
+indicating that it is no longer the backup (assuming <code>S2</code> obtained the new 
+view from the viewservice). </li>
+<li><code>S1</code> can then return an error to the client indicating that <code>S1</code> might no 
+longer be the primary (reasoning that, since <code>S2</code> rejected the operation, 
+a new view must have been formed); the client can then ask the view service 
+for the correct primary (S2) and send it the operation</li>
+</ul>
+
+<p>A failed key/value server may restart, but it will do so without a copy of the
+replicated data (i.e. the keys and values). That is, <strong>your key/value server will
+keep the data in memory, not on disk</strong>. One consequence of keeping data only
+in memory is that if there's no backup, and the primary fails, and then restarts,
+it cannot then act as primary.</p>
+
+<p>Only RPC may be used for interaction:</p>
+
+<ul>
+<li>between clients and servers, </li>
+<li>between different servers, and </li>
+<li>between different clients. </li>
+</ul>
+
+<p>For example, different instances of your server are not allowed to share <code>Go</code>
+variables or files.</p>
+
+<h3>Design limitations</h3>
+
+<p>The design outlined here has some fault-tolerance and performance limitations 
+which make it too weak for real-world use:</p>
+
+<ul>
+<li>The view service is vulnerable to failures, since it's not replicated.</li>
+<li>The primary and backup must process operations one at a time, limiting their
+performance.</li>
+<li>A recovering server must copy a complete database of key/value pairs from the
+primary, which will be slow, even if the recovering server has an almost
+up-to-date copy of the data already (e.g. only missed a few minutes of 
+updates while its network connection was temporarily broken).</li>
+<li>The servers don't store the key/value database on disk, so they can't survive
+simultaneous crashes (e.g., a site-wide power failure).</li>
+<li>If a temporary problem prevents primary to backup communication, the system
+has only two remedies:
+<ul>
+<li>change the view to eliminate the backup</li>
+<li>or keep trying</li>
+<li>neither performs well if such problems are frequent</li>
+</ul></li>
+<li>If a primary fails before acknowledging the view in which it is primary, the
+view service cannot make progress---it will spin forever and not perform 
+a view change.</li>
+</ul>
+
+<p>We will address these limitations in later labs by using better designs and
+protocols. This lab will help you understand the problems that you'll solve in 
+the succeeding labs.</p>
+
+<h3>Must work out the details</h3>
+
+<p>The primary/backup scheme in this lab is not based on any published protocol. </p>
+
+<ul>
+<li>In fact, this lab doesn't specify a complete protocol; you must work out the
+details. </li>
+</ul>
+
+<p>The protocol has similarities with Flat Datacenter Storage (the viewservice is 
+like FDS's metadata server, and the primary/backup servers are like FDS's
+tractservers), though FDS pays far more attention to performance. 
+It's also a bit like a MongoDB replica set (though MongoDB selects the leader with a Paxos-like
+ election). </p>
+
+<p>For a detailed description of a (different) primary-backup-like protocol, see 
+Chain Replication. Chain Replication has higher performance than this lab's
+design, though it assumes that the view service never declares a server dead
+when it is merely partitioned. See Harp and Viewstamped Replication for a detailed
+treatment of high-performance primary/backup and reconstruction of system state
+after various kinds of failures.</p>
+
+<h2>The viewservice</h2>
+
+<ul>
+<li>implement a viewservice</li>
+<li>make sure it passes our tests</li>
+<li>viewservice won't itself be replicated
+<ul>
+<li>relatively straightforward. </li>
+<li>Part B is harderd because the K/V service is replicated and you have to design much of the replication protocol.</li>
+</ul></li>
+</ul>
+
+<h3>Viewservice:</h3>
+
+<ul>
+<li>view service goes through <em>a sequence of numbered views</em>
+<ul>
+<li>each has a primary and (if possible) a backup</li>
+</ul></li>
+<li>a view consists of a <em>view number</em> and <em>the identity (network port name)</em> of the view's primary and backup servers.</li>
+</ul>
+
+<h3>Primary/backup:</h3>
+
+<ul>
+<li>primary in a view must always be either the primary or the backup of the previous view
+<ul>
+<li>helps ensure that the key/value service's state is preserved</li>
+<li>an exception: when the viewservice first starts, accept any server at all as the first primary. </li>
+<li>the backup in a view can be any server (other than the primary)
+<ul>
+<li>or can be altogether missing, if no server is available (represented by an empty string, "").</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h3>Key/value servers</h3>
+
+<ul>
+<li>Each key/value server sends a <code>Ping</code> RPC once per <code>PingInterval</code> (see viewservice/common.go)
+<ul>
+<li>I don't need to do this. Done in the test cases for the viewservice.</li>
+</ul></li>
+<li>The view service replies to the <code>Ping</code> with a description of the current view</li>
+<li>A <code>Ping</code> lets the view service know that the key/value server is alive; 
+<ul>
+<li>informs the key/value server of the current view; </li>
+<li>informs the view service of the most recent view that the key/value server knows about</li>
+</ul></li>
+<li>If viewservice doesn't receive a <code>Ping</code> from a server for <code>DeadPings</code> <code>PingIntervals</code>, the 
+viewservice considers the server to be dead. </li>
+<li>When a server re-starts after a crash, it should send one or more <code>Pings</code> with an argument of 
+zero to inform the view service that it crashed.</li>
+</ul>
+
+<h3>Views</h3>
+
+<ul>
+<li>view service proceeds to a new view if:
+<ul>
+<li>it hasn't received recent <code>Pings</code> from both primary and backup, or </li>
+<li>if the primary or backup crashed and restarted, or </li>
+<li>if there is no backup and there is an idle server (a server that's been Pinging but is 
+neither the primary nor the backup). </li>
+</ul></li>
+<li>the view service must not change views (i.e., return a different view to callers) until 
+the primary from the current view acknowledges that it is operating in the current view 
+(by sending a Ping with the current view number). </li>
+<li>if the view service has not yet received an acknowledgment for the current view from the primary 
+of the current view, the view service should not change views even if it thinks that the primary 
+or backup has died. 
+<ul>
+<li>that is, the view service may not proceed from view X to view X+1 if it has not received 
+a <code>Ping(X)</code> from the primary of view X.</li>
+</ul></li>
+</ul>
+
+<p>Why?</p>
+
+<ul>
+<li>the acknowledgment rule prevents the view service from getting more than one view ahead of the 
+key/value servers</li>
+<li>if the view service could get arbitrarily far ahead, then it would need a more complex design 
+in which it kept a history of views, allowed key/value servers to ask about old views, and 
+garbage-collected information about old views when appropriate. </li>
+</ul>
+
+<p>Downside of the acknowledgement rule: </p>
+
+<ul>
+<li>if the primary fails before it acknowledges the view in which it is primary, then the 
+view service cannot ever change views again.</li>
+</ul>
+
+<h3>Example</h3>
+
+<p>An example sequence of view changes:</p>
+
+<p><img src="lab-2a-vs.png" alt="View changes" title="" /></p>
+
+<p>The above example is overspecified; for example, when the view server gets Ping(1) from S1 for the first time, it is also OK for it to return view 1, as long as it eventually switches to view 2 (which includes S2).</p>
+
+<h3>Questions</h3>
+
+<ul>
+<li>Are we doing 1 primary server with 1 backup or <code>n</code> primary servers with <code>n</code> backups?
+<ul>
+<li>I think just 1 with 1.</li>
+</ul></li>
+</ul>
+
+<h3>Hints</h3>
+
+<p><strong>Hint:</strong> You'll want to add field(s) to <code>ViewServer</code> in <code>server.go</code> in order to keep track of the 
+most recent time at which the viewservice has heard a <code>Ping</code> from each server. Perhaps a map from 
+server names to <code>time.Time</code>. You can find the current time with <code>time.Now()</code>.</p>
+
+<ul>
+<li>We'll need this to measure if any servers have died</li>
+</ul>
+
+<p><strong>Hint:</strong> Add field(s) to ViewServer to keep track of the current view.</p>
+
+<ul>
+<li>Keep track of the view #, the primary, the backup</li>
+<li><strong>Q:</strong> What else?</li>
+</ul>
+
+<p><strong>Hint:</strong> You'll need to keep track of whether the primary for the current view has acknowledged it 
+(in PingArgs.Viewnum).</p>
+
+<ul>
+<li>Every time we get a <code>Ping</code> it includes the view # (just like TCP ACKs kind of)</li>
+<li>Where's the best place to store this? In the "last heard of" map?</li>
+</ul>
+
+<p><strong>Hint:</strong> Your viewservice needs to make periodic decisions, for example to promote the backup if the 
+viewservice has missed <code>DeadPings</code> pings from the primary. Add this code to the <code>tick()</code> function, 
+which is called once per <code>PingInterval</code>.</p>
+
+<ul>
+<li>So basically verify if primary is alive, backup is alive, by checking last ping</li>
+<li>Should probably also verify if the idles are alive</li>
+</ul>
+
+<p><strong>Hint:</strong> There may be more than two servers sending <code>Pings</code>. The extra ones (beyond primary and 
+backup) are volunteering to be backup if needed.</p>
+
+<p><strong>Hint:</strong> The viewservice needs a way to detect that a primary or backup has failed and re-started. 
+For example, the primary may crash and quickly restart without missing sending a single <code>Ping</code>.</p>
+
+<ul>
+<li>The view number in the <code>Ping</code> tells us if the server restarted: <code>if(rcvd view num &lt; stored view num)</code> then server crashed</li>
+<li>This basically tells us that we can't <em>just</em> rely on <code>tick()</code> to detect
+the failed servers</li>
+<li>We also need code in the <code>Ping</code> handler
+<ul>
+<li>Actually, not always</li>
+<li>It's possible that a <code>Ping</code> packet was delayed and that could be why we're seeing older pings</li>
+<li>Thus, I think we should assume that when we see a <code>Ping(0)</code> the server restarted
+<ul>
+<li>Not clear how we should deal with delayed <code>Ping(0)</code></li>
+</ul></li>
+</ul></li>
+</ul>
+
+<p><strong>Hint:</strong> Study the test cases before you start programming. If you fail a test, you may have to look 
+at the test code in <code>test_test.go</code> to figure out the failure scenario is.</p>
+
+<p>The easiest way to track down bugs is to insert <code>log.Printf()</code> statements, collect the output in a 
+file with <code>go test &gt; out</code>, and then think about whether the output matches your understanding of how 
+your code should behave.</p>
+
+<p><strong>Remember:</strong> The Go RPC server framework starts a new thread for each received RPC request. 
+ - multiple RPCs arrive at the same time (from multiple clients) <code>=&gt;</code> may be multiple threads running 
+   concurrently in the server.</p>
+
+<p><strong>TODO:</strong> The tests kill a server by setting its dead flag. You must make sure that your server terminates when 
+that flag is set, otherwise you may fail to complete the test cases.</p>
+
+<h2>The primary/backup key/value service</h2>
+
+<ul>
+<li>server code in <code>pbservice/</code></li>
+<li>part of the server in <code>pbservice/server.go</code></li>
+<li>part of the client <em>interface</em> in <code>pbservice/client.go</code></li>
+<li>clients use the service by creating a <code>Clerk</code> object (see <code>pbservice/client.go</code>) and calling its methods</li>
+<li><strong>Goal:</strong> service should:
+<ul>
+<li>operate correctly as long as <em>there has never been a time at which no server was alive</em>
+<ul>
+<li><strong>TODO:</strong> You mean primary and backup? Or primary and backup and viewservice?</li>
+</ul></li>
+<li>operate correctly with network partitions
+<ul>
+<li>server suffers network failure without crashing</li>
+<li>can talk to some but not others</li>
+</ul></li>
+<li>be able to incorporate idles as backups, if operating with one primary only</li>
+<li>provide <em>at-most-once</em> semantics for all operations</li>
+</ul></li>
+<li><strong>Definition:</strong> <em>correct operation</em> means <code>Clerk.Get(k)</code> return the latest value set by successful
+calls to <code>Clerk.Put(k,v)</code> or <code>Clerk.Append(k.v)</code> or empty string if no such calls were made</li>
+<li>assume <em>viewserver never crashes</em></li>
+<li>have a clear story for why there can only be one primary in your design
+<ul>
+<li>Example: 
+<ul>
+<li>in view #1, S1 is primary</li>
+<li>viewserver changes views so that S2 is the primary</li>
+<li>S1 does not hear about it, thinks it's still primary</li>
+<li>some clients talk to S1, others to S2 and don't see each other's <code>Put()</code> calls</li>
+</ul></li>
+<li>Solution:
+<ul>
+<li>if viewserver made S2 primary, then S2 was the backup of S1 in the previous view (view #1)</li>
+<li>then when S1 gets a call, thinking it's still the primary, it will have to talk to its backup
+(S2) and tell it about the new call it saw (this is why we have to replicate <code>Get()</code> calls too).</li>
+<li>then, S2 will realize S1 didn't get updated and will tell it that the view has changed. </li>
+<li>S1 will then probably return an error to the caller and inform it about the new view.</li>
+<li>this also explains why the viewserver cannot advance the view further ahead unless the primary
+acknowledges the previous view</li>
+<li>suppose S2 fails as the primary in view #2 and the viewserver moves to view #3 where some
+server S3 is made primary (assuming S3 was backup in view #2)</li>
+<li>then S2 comes back up and it's a backup again (in view #4, S2 is a backup for S3)</li>
+<li>now, S1 still thinks he's in view #1 with S2 as a backup and S2 does think it's a backup
+but he's in view #4 (and is a backup for S3)
+<ul>
+<li>unless S2 can distinguish between ops coming from S3 and S1, we're in trouble because
+S1 and S3 client ops will both be sent to S2 and screw each other up</li>
+</ul></li>
+</ul></li>
+</ul></li>
+<li><code>Clerk.Get/Put/Append</code> should only return when they have completed the op
+<ul>
+<li>keep trying until success</li>
+<li>server must filter out duplicate RPCs (ensure <em>at-most-once</em> semantics)</li>
+<li><strong>Note:</strong> assume each cleark has only one outstanding <code>Put</code> or <code>Get</code>
+<ul>
+<li><strong>TODO:</strong> does this mean one op at a time for clients?</li>
+</ul></li>
+<li><strong>Note:</strong> think carefully about what the commit point is for a <code>Put</code>
+<ul>
+<li><strong>TODO:</strong> not sure what this means?</li>
+</ul></li>
+</ul></li>
+<li>neither clients nor servers should talk to viewservice for every op (performance issues)
+<ul>
+<li>servers just ping periodically to get view updates</li>
+<li>clients cache current primary and talk to the viewserver when primary seems dead</li>
+</ul></li>
+<li>ensure backup is up-to-date
+<ul>
+<li>primary initializes it with the complete key/value db</li>
+<li>then forwards subsequent client ops</li>
+<li>primary only forwards <code>Append()</code> args, not the full resulting value (could be too large)
+<ul>
+<li><strong>TODO:</strong> do we need to worry about out-of-order here?</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h3>Plan of attack</h3>
+
+<ol>
+<li>Start by modifying <code>pbservice/server.go</code> to ping the viewservice and get curr. view
+<ul>
+<li>do this in the <code>tick()</code> function</li>
+</ul></li>
+<li>Implement <code>Get</code>, <code>Put</code>, <code>Append</code> handlers in <code>pbservice/server.go</code>
+<ul>
+<li>store keys and values in a <code>map[string]string</code>
+<ul>
+<li><strong>TODO:</strong> concurrency</li>
+</ul></li>
+</ul></li>
+<li>Implement <code>pbservice/client.go</code> RPC stubs</li>
+<li>Modify <code>pbservice/server.go</code> handlers to forward updates to backup</li>
+<li>New backup in view <code>=&gt;</code> primary sends it complete key/value DB
+<ul>
+<li><strong>TODO:</strong> would take a while. does primary accept new ops? if it does, maybe puts them
+in another new map that it starts syncing to the backup once the first map is transferred?
+this would assume that new ops are coming at a slow-enough rate to allow the primary to catch
+up</li>
+</ul></li>
+<li>Modify <code>pbservice/client.go</code> to keep retrying
+<ul>
+<li>include enough info in <code>PutAppendArgs</code> and <code>GetArgs</code> (xid?) (see <code>common.go</code>) for the
+server to detect duplicates</li>
+</ul></li>
+<li>Modify the key value service (<code>pbservice/server.go</code>?) to handle duplicates correctly
+<ul>
+<li><strong>TODO:</strong> look at <code>Get/PutAppendArgs</code> for xid? cache responses by <code>xid</code></li>
+</ul></li>
+<li>Modify <code>pbservice/client.go</code> to handle failed primary
+<ul>
+<li>primary seems dead or doesn't think it's the primary <code>=&gt;</code> client asks viewserver and tries again</li>
+<li>sleep for <code>viewservice.PingInterval</code> to avoid wasting CPU time
+<ul>
+<li>wtf, networking calls will sleep the thread for long enough</li>
+</ul></li>
+</ul></li>
+</ol>
+
+<h3>Hints</h3>
+
+<ul>
+<li>create new RPCs for:
+<ul>
+<li>primary to forward client requests to backup</li>
+<li>primary to transfer the complete key value DB to backup
+<ul>
+<li>include the <code>map[string]string</code> as an argument to the RPC call</li>
+</ul></li>
+</ul></li>
+<li>the state used to filter duplicates (XIDs) must be replicated along with the key/value state</li>
+<li>RPC replies are lost in "unreliable" tst cases <code>=&gt;</code> servers execute the op, but client's won't 
+know it <code>=&gt;</code> use XIDs to remember op results on the server and in the client args</li>
+<li>see the <code>nrand</code> PRNG code for generating XIDs</li>
+<li>make sure servers terminate correctly when the <code>dead</code> flag is set</li>
+<li><strong>WARNING:</strong> part A bugs that somehow passed the part A tests could screw up your part B test cases</li>
+<li>study the test cases before coding</li>
+</ul>

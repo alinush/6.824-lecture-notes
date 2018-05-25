@@ -36,6 +36,15 @@ Lectures form other years
 
  * Practical Byzantine Fault Tolerance (PBFT): [[2012]](original-notes/pbft-2012.txt), [[2011]](original-notes/pbft-2011.txt), [[2010]](original-notes/pbft-2010.txt), [[2009]](original-notes/pbft-2009.txt), [[2001]](original-notes/pbft-2001.txt), [[PPT]](original-notes/pbft.ppt)
 
+Labs
+----
+
+ - Lab 1: MapReduce, [[assign]](lab1/index.html)
+ - Lab 2: A fault-tolerant key/value service, [[assign]](lab2/index.html), [[notes]](lab2/notes.html)
+ - Lab 3: Paxos-based Key/Value Service, [[assign]](lab3/index.html), [[notes]](lab3/notes.html)
+ - Lab 4: Sharded Key/Value Service, [[assign]](lab4/index.html), [[notes]](lab4/notes.html)
+ - Lab 5: Persistent Key/Value Service, [[assign]](lab5/index.html)
+
 Papers
 ------
 
