@@ -34,7 +34,8 @@ Lecture notes from 6.824, taught by [Prof. Robert T. Morris](http://pdos.csail.m
 Lectures form other years
 -------------------------
 
- * Practical Byzantine Fault Tolerance (PBFT): [[2012]](original-notes/pbft-2012.txt), [[2011]](original-notes/pbft-2011.txt), [[2010]](original-notes/pbft-2010.txt), [[2009]](original-notes/pbft-2009.txt), [[2001]](original-notes/pbft-2001.txt), [[PPT]](original-notes/pbft.ppt)
+ * [Practical Byzantine Fault Tolerance (PBFT)](extra/pbft.html)
+    + Other years: [[2012]](original-notes/pbft-2012.txt), [[2011]](original-notes/pbft-2011.txt), [[2010]](original-notes/pbft-2010.txt), [[2009]](original-notes/pbft-2009.txt), [[2001]](original-notes/pbft-2001.txt), [[PPT]](original-notes/pbft.ppt)
 
 Labs
 ----

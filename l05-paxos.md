@@ -43,7 +43,7 @@ Lab 2 critique
    - works with network partition
  + **con:**
    - ViewServer is a _single point of failure_
-   - order can be messy, e.g. new view, data to backup, ack, &c
+   - order can be messy: e.g., new view, data to backup, ack, &c
    - tension if backup is slow / temporarily unavail
      1. primary can wait for backup -- slow
      2. viewserver can declare backup dead -- expensive, hurts fault tolerance
@@ -140,7 +140,7 @@ Example:
 
  - Why not require all replicas to agree on each op in lock-step?
  - Allows one replica to fall behind, then catch up
-   + e.g. if it is slow
+   + e.g., if it is slow
    + other replicas do not have to wait
  - Allows one replica to crash and catch up
    + if it keeps state on disk
@@ -173,10 +173,9 @@ Two **main ideas** in Paxos:
   2. A majority is required for agreement -- prevent "split brain"
      - *Key point*: any two majorities overlap
      - so any later majority will share at least one server w/ any earlier majority
-     - so any later majority can find out what earlier majority decided
-       + **TODO:** How?
+     - so any later majority can find out what earlier majority decided (discussed below)
 
-Lab 3B K/V server creates a separate Paxos instance for each client `Put`, `Get`
+Lab 3B K/V server creates a separate Paxos instance for each client `Put`, `Get` (much harder)
 
  - rest of lecture focuses on agreement for a specific instance
 
@@ -226,7 +225,7 @@ _Broken strawman:_ can we do Paxos in a single round?
 
 ### Why `n`?
 
- - to distinguish among multiple rounds, e.g. proposer crashes, simul props
+ - to distinguish among multiple rounds, e.g., proposer crashes, simul props
  - want later rounds to supersede earlier ones
  - numbers allow us to compare early/late
  - `n` values must be unique and roughly follow time
@@ -245,23 +244,21 @@ _Broken strawman:_ can we do Paxos in a single round?
 The **crucial property:**
 
  - if a value was chosen, any subsequent choice must be the same value
-   + i.e. protocol must not change its mind
+   + i.e., protocol must not change its mind
    + maybe a different proposer &c, but same value!
    + this allows us to freely start new rounds after crashes &c
  - tricky b/c _"chosen"_ is system-wide property
-   + e.g. majority accepts, then proposer crashes
-     - **TODO:** What happens here?
-   + _no node can tell locally that agreement was reached_
+   + e.g., majority accepts, then proposer crashes
+   + `=>` _no node can tell locally that agreement was reached_
 
 So:
 
- - proposer doesn't send out value with `prepare`
-   + **TODO:** How is any value accepted by an acceptor then?
+ - proposer doesn't send out value with `prepare` (but sends it a bit later)
  - acceptors send back any value they have already accepted
  - if there is one, proposer proposes that value
    + to avoid changing an existing choice
  - if no value already accepted,
-   + proposer can propose any value (e.g. a client request)
+   + proposer can propose any value (e.g., a client request)
  - proposer must get `prepare_ok` from majority
    + to guarantee intersection with any previous majority,
    + to guarantee proposer hears of any previously chosen value
@@ -300,7 +297,8 @@ So:
 
 **Example 1** (normal operation):
 
-        `S1`, `S2`, `S3` but `S3` is dead or slow
+        `S1`, `S2`, `S3` 
+        [ but `S3` is dead or slow ]
 
         `S1`: -> starts proposal w/ n=1 v=A
         `S1`: <- p1   <- a1vA    <- dA
@@ -332,13 +330,13 @@ Note Paxos only requires a majority of the servers
 
 #### What would happen if network partition?
 
- - I.e. `S3` was alive and had a proposed value B
+ - i.e., `S3` was alive and had a proposed value B
  - `S3`'s prepare would not assemble a majority
 
 #### The homework question
 
-How does Paxos ensure that the following sequence of events can't
-happen? What actually happens, and which value is ultimately chosen?
+How does Paxos ensure that the following sequence of events can't happen? 
+What actually happens, and which value is ultimately chosen?
 
       proposer 1 crashes after sending two accept() requests
       proposer 2 has a different value in mind
@@ -353,16 +351,22 @@ happen? What actually happens, and which value is ultimately chosen?
 **The point:**
 
  - if the system has already reached agreement, majority will know value
+    + in this example, A and C agreed on 'foo'
  - any new majority of prepares will intersect that majority
+    - in this example, AC intersects BC in C
  - so subsequent proposer will learn of already-agreed-on value
- - and send it in accept msgs
+    - in this example, C will reply with a `prepare_ok(n=2, n_a=1, v_a=foo)` to proposer
+ - and subsequent proposer will send already-agreed-on value in `accept` msg
+    - in this example, proposer will send `accept(n=2, v=foo)` 
 
 **Example 2** (concurrent proposers):
 
         A1 starts proposing n=10 by sending prepare(n=10) 
         A1 sends out just one accept v=10
+        [ => A1 must have received prepare_ok from majority ]
         A3 starts proposing n=11
           but A1 does not receive its proposal
+          [ => A1 never replies to A3 with prepare_ok(n=11, n_a=10, v=10) because it never got the prepare ]
           A3 only has to wait for a majority of proposal responses
 
         A1: p10 a10v10 
@@ -374,14 +378,22 @@ happen? What actually happens, and which value is ultimately chosen?
 What will happen?
 
  - **Q:** What will `A2` do if it gets `a10v10` accept msg from `A1`?
-   - `a10v10` means `accept(n=10,v=10)` which happens after the 
-     `prepare->` is sent and the `<-prepare_ok` is received
+   - _Recall:_ `a10v10` means `accept(n=10,v=10)` which is sent by proposer after he receives a majority of `<-prepare_ok`'s on `n=10`
    - **A:** A2 will reject because it has a higher `np` from `p11`
  - **Q:** What will `A1` do if it gets `a11v11` accept msg from `A3`?
-   - **A:** `A1` will reply `ACCEPT_OK` and change its value to 11
-     because `n = 11 > np = 10`
+   - **A:** `A1` will reply `accept_ok` and change its value to 11 because `n = 11 > np = 10`
+ - In other words, a value has not been chosen yet because no majority accepted the same value yet with the same proposal number.
 
-What if A3 were to crash at this point (and not restart)?
+What if A3 (2nd proposer) were to crash at this point (and not restart)?
+ 
+ - **TODO:** Not sure which "point" they are referring to.
+ - _Case 1:_ If `A3` crashes after proposing `n=11` and after receiving a majority of `prepare_ok`'s but before sending out the other two `accept`'s to `A1` and `A2`, then:
+    + `A1` could come back online and send an `accept(n=10,v=10)` to `A2`
+    + `A2` will reject because it has a higher `np = 11` (see above and see algorithm)
+    + `A1` will repropose with higher `n` and eventually convince both itself and `A2` to accept `v10`
+ - _Case 2:_ `A3` crashes after proposing `n=11` and receiving a majority of `prepare_ok`'s and _after_ sending out an `accept` to `A2`
+    - `A2` will `accept_ok` on `v11`
+    - Now `v11` is chosen: any future majority of `prepare_ok`'s will return `v11`
 
 How about this:
 
@@ -393,8 +405,8 @@ Has the system agreed to a value at this point?
 
 #### What's the commit point?
 
- - i.e. exactly when has agreement been reached?
- - i.e. at what point would changing the value be a disaster?
+ - i.e., exactly when has agreement been reached?
+ - i.e., at what point would changing the value be a disaster?
  - after a majority has the same `v_a`? no -- why not? above counterexample
  - after a majority has the same `v_a/n_a`? yes -- why sufficient? sketch:
    + suppose majority has same `v_a/n_a`
@@ -456,7 +468,7 @@ Scenario:
 
 #### What if new proposer chooses `n < old proposer`?
 
- - i.e. if clocks are not synced
+ - i.e., if clocks are not synced
  - cannot make progress, though no correctness problem
 
 #### What if an acceptor crashes after receiving accept?

@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>pbft</title>
+  <style type="text/css">
+      code{white-space: pre-wrap;}
+      span.smallcaps{font-variant: small-caps;}
+      div.line-block{white-space: pre-line;}
+      div.column{display: inline-block; vertical-align: top; width: 50%;}
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS_CHTML-full" type="text/javascript"></script>
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<h1 id="practical-byzantine-fault-tolerance-2012-modified-notes">6.824 Practical Byzantine Fault Tolerance (2012 modified notes)</h1>
+<p>We’ve considered many fault-tolerance protocols</p>
+<ul>
+<li>have always assumed “fail-stop” failures – like power failure</li>
+<li>i.e. servers follow the protocol</li>
+<li>hard enough: crash vs network down; network partition</li>
+</ul>
+<p>Can one handle a larger class of failures?</p>
+<ul>
+<li>buggy servers, that compute incorrectly rather than stopping?</li>
+<li>servers that <em>don’t</em> follow the protocol?</li>
+<li>servers that have been modified by an attacker?</li>
+<li>often called “Byzantine” faults</li>
+</ul>
+<p>The PBFT paper’s approach:</p>
+<ul>
+<li>replicated state machine</li>
+<li>assumes <span class="math inline">\(2f+1\)</span> of <span class="math inline">\(3f+1\)</span> are non-faulty</li>
+<li>use voting to select the right results</li>
+<li>not as easy as it might sound</li>
+</ul>
+<p>Let’s assume the worst case:</p>
+<ul>
+<li>a single attacker controls the <span class="math inline">\(f\)</span> faulty replicas</li>
+<li>and is actively trying to break the system</li>
+<li>if we can handle this, we can handle bugs in f replicas too</li>
+</ul>
+<p>What are the attacker’s powers?</p>
+<ul>
+<li>supplies the code that faulty replicas run</li>
+<li>knows the code the non-faulty replicas are running</li>
+<li>knows the faulty replicas’ crypto keys</li>
+<li>can read network messages</li>
+<li>can temporarily force messages to be delayed via DoS
+<ul>
+<li>specifically, can delay messages from up to <span class="math inline">\(f\)</span> replicas</li>
+</ul></li>
+</ul>
+<p>What faults <em>can’t</em> happen?</p>
+<ul>
+<li>no more than f out of 3f+1 replicas can be faulty</li>
+<li>no client failure – clients never do anything bad</li>
+<li>no guessing of crypto keys or breaking of cryptography</li>
+</ul>
+<p>Example use scenario:</p>
+<pre><code>RM:
+  echo A &gt; grade
+  echo B &gt; grade
+  tell YM &quot;the grade file is ready&quot;
+YM:
+  cat grade</code></pre>
+<p>A faulty system could:</p>
+<ul>
+<li>totally make up the file contents</li>
+<li>execute write(“A”) but ignore write(“B”)</li>
+<li>show “B” to RM and “A” to YM</li>
+<li>execute write(“B”) only only some of the replicas</li>
+</ul>
+<h2 id="bad-bft-designs">Bad BFT designs</h2>
+<p>Let’s try to design our own byzantine-fault-tolerant RSM</p>
+<ul>
+<li>start simple (and broken), work towards paper’s design</li>
+</ul>
+<h3 id="design-1-wait-for-all-servers">Design 1: Wait for all servers</h3>
+<ul>
+<li>client, <span class="math inline">\(n\)</span> servers</li>
+<li>client sends request to all of them</li>
+<li>client waits for all <span class="math inline">\(n\)</span> to reply</li>
+<li>client only proceeds if all <span class="math inline">\(n\)</span> agree</li>
+</ul>
+<p>What’s wrong with design 1?</p>
+<ul>
+<li>not fault-tolerant: one faulty replica can stop progress by disagreeing</li>
+</ul>
+<h3 id="design-2-wait-for-f1-out-of-2f1">Design 2: Wait for <span class="math inline">\(f+1\)</span> out of <span class="math inline">\(2f+1\)</span></h3>
+<ul>
+<li>let’s have replicas vote</li>
+<li><span class="math inline">\(2f+1\)</span> servers, assume no more than <span class="math inline">\(f\)</span> are faulty</li>
+<li>client waits for <span class="math inline">\(f+1\)</span> matching replies
+<ul>
+<li>if only <span class="math inline">\(f\)</span> are faulty, and network works eventually, must get them!</li>
+</ul></li>
+</ul>
+<p>What’s wrong with design 2’s 2f+1?</p>
+<ul>
+<li>not safe: <span class="math inline">\(f+1\)</span> matching replies might be from <span class="math inline">\(f\)</span> malicious nodes and just 1 good (because the other <span class="math inline">\(f\)</span> nodes are delayed)
+<ul>
+<li>so maybe only one good node got the operation!</li>
+<li>in other words, client can’t wait for replies from the last <span class="math inline">\(f\)</span> replicas
+<ul>
+<li>they might be faulty, never going to reply</li>
+<li>so must be able to make a decision after <span class="math inline">\(n-f\)</span> replies (i.e., <span class="math inline">\(f+1\)</span> since <span class="math inline">\(n=2f+1\)</span>)</li>
+<li>but <span class="math inline">\(f\)</span> of the first <span class="math inline">\(f+1\)</span> replies might be from faulty replicas!
+<ul>
+<li>i.e., <span class="math inline">\(f+1\)</span> is not enough to vote: waiting for <span class="math inline">\(f+1\)</span> of <span class="math inline">\(2f+1\)</span> doesn’t ensure that majority of good nodes executed</li>
+</ul></li>
+</ul></li>
+</ul></li>
+<li><em>next</em> operation <code>op2</code> also waits for <span class="math inline">\(f+1\)</span>
+<ul>
+<li>might <em>not</em> include that one good node that saw <code>op1</code></li>
+</ul></li>
+<li>Example:
+<ul>
+<li><span class="math inline">\(S_1\)</span> <span class="math inline">\(S_2\)</span> <span class="math inline">\(S_3\)</span> (<span class="math inline">\(S_1\)</span> is bad)</li>
+<li>everyone hears and replies to write(“A”)</li>
+<li><span class="math inline">\(S_1\)</span> and <span class="math inline">\(S_2\)</span> reply to write(“B”), but <span class="math inline">\(S_3\)</span> misses it
+<ul>
+<li>client can’t wait for <span class="math inline">\(S_3\)</span> since it may be the one faulty server</li>
+</ul></li>
+<li><span class="math inline">\(S_1\)</span> and <span class="math inline">\(S_3\)</span> reply to read(), but <span class="math inline">\(S_2\)</span> misses it</li>
+<li>so read() yields “A”</li>
+</ul></li>
+<li>Result: client tricked into accepting a reply based on out-of-date state
+<ul>
+<li>e.g. TA reads A instead of B from grades file</li>
+</ul></li>
+</ul>
+<h3 id="design-3-wait-for-2f1-out-of-3f1">Design 3: Wait for <span class="math inline">\(2f+1\)</span> out of <span class="math inline">\(3f+1\)</span></h3>
+<ul>
+<li><span class="math inline">\(3f+1\)</span> servers, of which at most <span class="math inline">\(f\)</span> are faulty</li>
+<li>client waits for <span class="math inline">\(2f+1\)</span> matching replies
+<ul>
+<li><span class="math inline">\(f\)</span> bad nodes plus a majority of the good nodes</li>
+<li>so all sets of <span class="math inline">\(2f+1\)</span> overlap in at least one good node</li>
+</ul></li>
+<li>Example:
+<ul>
+<li><span class="math inline">\(S_1\)</span> <span class="math inline">\(S_2\)</span> <span class="math inline">\(S_3\)</span> <span class="math inline">\(S_4\)</span> (<span class="math inline">\(S_1\)</span> is bad)</li>
+<li>everyone hears write(“A”)</li>
+<li><span class="math inline">\(S_1\)</span>, <span class="math inline">\(S_2\)</span>, <span class="math inline">\(S_3\)</span> hears write(“B”), <span class="math inline">\(S_4\)</span> misses it</li>
+<li>now the read()
+<ul>
+<li>client will wait for <span class="math inline">\(2f+1=3\)</span> matching replies</li>
+<li><span class="math inline">\(S_1\)</span> and <span class="math inline">\(S_4\)</span> will reply “A”</li>
+<li><span class="math inline">\(S_2\)</span> and <span class="math inline">\(S_3\)</span> will reply “B”</li>
+</ul></li>
+<li>client doesn’t know what to believe (neither is <span class="math inline">\(2f+1\)</span>)
+<ul>
+<li>but it is guaranteed to see there’s a problem</li>
+</ul></li>
+</ul></li>
+<li>so client can <em>detect</em> that some good nodes missed an operation
+<ul>
+<li>we’ll see how to repair in a bit</li>
+</ul></li>
+</ul>
+<p>What about handling multiple clients?</p>
+<ul>
+<li>non-faulty replicas must process operations in the same order!</li>
+</ul>
+<p>Let’s have a primary to pick order for concurrent client requests</p>
+<ul>
+<li>but we have to worry about a faulty primary</li>
+</ul>
+<p>What can a faulty primary do?</p>
+<ol type="1">
+<li>send wrong result to client</li>
+<li>different ops to different replicas</li>
+<li>ignore a client op</li>
+</ol>
+<p>General approach to handling faulty primary</p>
+<ol type="1">
+<li>replicas send results direct to client</li>
+<li>replicas exchange info about ops sent by primary</li>
+<li>clients notify replicas of each operation, as well as primary each replica watches progress of each operation if no progress, force change of primary</li>
+</ol>
+<p>Can a replica execute an operation when it first receives it from primary?</p>
+<ul>
+<li>No: maybe primary gave different ops to different replicas</li>
+<li>if we execute before we’re sure, we’ve wrecked the replica’s state</li>
+<li><code>=&gt;</code> need 2nd round of messages to make sure all good replicas got the same op</li>
+</ul>
+<h3 id="design-4-almost-pbft-no-view-change">Design 4: Almost PBFT (no view change)</h3>
+<ul>
+<li><span class="math inline">\(3f+1\)</span> servers, one is primary, <span class="math inline">\(f\)</span> faulty, primary might be faulty</li>
+<li>client sends request to primary <strong>AND</strong> to each replica</li>
+<li>primary chooses next op and op #</li>
+<li>primary sends <code>PRE-PREPARE(op, n)</code> to replicas</li>
+<li>each replica sends <code>PREPARE(op, n)</code> to all replicas</li>
+<li>if replica gets matching <code>PREPARE(op, n)</code> from <code>2f+1</code> replicas (including itself) and <span class="math inline">\(n\)</span> is the next operation #
+<ul>
+<li>execute the operation, possibly modifying state</li>
+<li>send reply to client</li>
+</ul></li>
+<li>Otherwise, keep waiting</li>
+<li>client is happy when it gets <span class="math inline">\(f+1\)</span> matching replies</li>
+</ul>
+<p>[??]</p>
+<pre><code>   REQ  PRE-P  PREPARE  REPLY
+ C
+S0
+S1
+S2
+S3</code></pre>
+<p>Remember our strategy:</p>
+<ul>
+<li>primary follows protocol =&gt; progress</li>
+<li>no progress =&gt; replicas detect and force change of primary</li>
+</ul>
+<p>If the primary is non-faulty, can faulty replicas prevent correct progress?</p>
+<ul>
+<li>they can’t forge primary msgs</li>
+<li>they can delay msgs, but not forever</li>
+<li>they can do nothing (i.e., not execute the protocol): but they aren’t needed for <span class="math inline">\(2f+1\)</span> matching PREPAREs</li>
+<li>they can send correct PREPAREs
+<ul>
+<li>and DoS <span class="math inline">\(f\)</span> good replicas to prevent them from hearing ops</li>
+<li>but those replicas will eventually hear the ops from the primary</li>
+<li><strong>TODO:</strong> Eh?</li>
+</ul></li>
+<li>worst outcome: delays</li>
+</ul>
+<p>If the primary is faulty, will replicas detect any problem? Or can primary cause undetectable problem?</p>
+<ul>
+<li>primary can’t forge client ops – signed</li>
+<li>it can’t ignore client ops – client sends to all replicas</li>
+<li>it can try to send in different order to different replicas,
+<ul>
+<li>or try to trick replicas into thinking an op has been processed even though it hasn’t</li>
+<li><strong>TODO:</strong> Define processed!</li>
+</ul></li>
+<li>Will replicas detect such an attack?</li>
+</ul>
+<p>Results of the primary sending diff ops to diff replicas?</p>
+<ul>
+<li>Case 1: all good nodes get <span class="math inline">\(2f+1\)</span> matching PREPAREs
+<ul>
+<li>Did they all get the same op?</li>
+<li>Yes, everyone who got <span class="math inline">\(2f+1\)</span> matching PREPAREs must have gotten same op
+<ul>
+<li>since any two sets of <span class="math inline">\(2f+1\)</span> share at least one good server who will not equivocate about op</li>
+</ul></li>
+<li>Result: all good nodes will execute op, client happy!</li>
+</ul></li>
+<li>Case 2: <span class="math inline">\(\ge f+1\)</span> good nodes get <span class="math inline">\(2f+1\)</span> matching PREPARES
+<ul>
+<li>again, no disagreement possible</li>
+<li>result: <span class="math inline">\(f+1\)</span> good nodes will execute op, client happy</li>
+<li><strong>BUT</strong> up to <span class="math inline">\(f\)</span> good nodes don’t execute
+<ul>
+<li>can they be used to effectively roll back the op?</li>
+<li>i.e., send the write(“B”) to <span class="math inline">\(f+1\)</span>, send read() to remaining <span class="math inline">\(f\)</span></li>
+<li>no: won’t be able to find <span class="math inline">\(2f+1\)</span> replicas with old state
+<ul>
+<li><strong>TODO:</strong> i.e., read() won’t be able to get <span class="math inline">\(2f+1\)</span> matching PREPAREs for the same <span class="math inline">\(n\)</span> because <span class="math inline">\(f+1\)</span> replicas have advanced to <span class="math inline">\(n+1\)</span>, so attacker is left with <span class="math inline">\(f\)</span> good replicas and <span class="math inline">\(f\)</span> bad ones, which is less than <span class="math inline">\(2f+1\)</span></li>
+</ul></li>
+<li>so not enough PREPAREs</li>
+</ul></li>
+</ul></li>
+<li>Case 3: <span class="math inline">\(&lt; f+1\)</span> good nodes get <span class="math inline">\(2f+1\)</span> matching PREPAREs
+<ul>
+<li>result: client never gets a reply</li>
+<li>result: system will stop, since <span class="math inline">\(f+1\)</span> stuck waiting for this op
+<ul>
+<li><strong>TODO:</strong> Eh?</li>
+</ul></li>
+</ul></li>
+</ul>
+<p>How to resume operation after faulty primary?</p>
+<ul>
+<li>need a <em>view change</em> to choose new primary</li>
+<li>(this view change only chooses primary; no notion of set of live servers)</li>
+</ul>
+<p>When does a replica ask for a view change?</p>
+<ul>
+<li>if it sees a client op but doesn’t see <span class="math inline">\(2f+1\)</span> matching PREPAREs (after some timeout period)</li>
+</ul>
+<p>Is it OK to trigger a view change if just one replica asks?</p>
+<ul>
+<li>No: faulty replicas might cause constant view changes</li>
+</ul>
+<p>For now, let’s defer the question of how many replicas must ask for a view change.</p>
+<p>Who is the next primary?</p>
+<ul>
+<li>need to make sure faulty replicas can’t always make themselves next primary</li>
+<li>view number <span class="math inline">\(v\)</span></li>
+<li>primary is <span class="math inline">\(v \bmod n\)</span></li>
+<li>so primary rotates among servers</li>
+<li>at most <span class="math inline">\(f\)</span> faulty primaries in a row</li>
+</ul>
+<h3 id="view-change-design-1-not-correct">View change design 1 (not correct)</h3>
+<ul>
+<li>replicas send <code>VIEW-CHANGE</code> requests to <em>new</em> primary</li>
+<li>new primary waits for enough view-change requests</li>
+<li>new primary announces view change w/ <code>NEW-VIEW</code>
+<ul>
+<li>includes the <code>VIEW-CHANGE</code> requests</li>
+<li>as proof that enough replicas wanted to change views</li>
+</ul></li>
+<li>new primary starts numbering operations at last <span class="math inline">\(n\)</span> it saw + 1</li>
+</ul>
+<p>Will all non-faulty replicas agree about operation numbering across view change?</p>
+<p>Problem:</p>
+<ul>
+<li>I saw <span class="math inline">\(2f+1\)</span> PREPAREs for operation <span class="math inline">\(n\)</span>, so I executed it</li>
+<li>new primary did not, so it did not execute it</li>
+<li>maybe new primary didn’t even see the PRE-PREPARE for operation n
+<ul>
+<li>old primary may never have sent PRE-PREPARE to next primary</li>
+</ul></li>
+<li>thus new primary may start numbering at <span class="math inline">\(n\)</span>, yielding two different op #n</li>
+</ul>
+<p>Can new primary ask all replicas for set of operations they have executed?</p>
+<ul>
+<li>doesn’t work: new primary can only wait for <span class="math inline">\(2f+1\)</span> replies
+<ul>
+<li>faulty replicas may reply, so new primary may not wait for me</li>
+</ul></li>
+</ul>
+<p>Solution:</p>
+<ul>
+<li>don’t execute operation until sure a new primary will hear about it</li>
+<li>add a third phase: <code>PRE-PREPARE</code>, <code>PREPARE</code>, then <code>COMMIT</code></li>
+<li><strong>only execute after commit</strong></li>
+</ul>
+<h3 id="final-design-pbft-operation-protocol">Final design: PBFT operation protocol</h3>
+<ul>
+<li>client sends op to primary
+<ul>
+<li><strong>TODO:</strong> And other replicas too, no? Or how do replicas know when to change primary who doesn’t pre-prepare anything?</li>
+</ul></li>
+<li>primary sends <code>PRE-PREPARE(op, n)</code> to all</li>
+<li>all send <code>PREPARE(op, n)</code> to all</li>
+<li>after replica receives <span class="math inline">\(2f+1\)</span> matching <code>PREPARE(op, n)</code>
+<ul>
+<li>send <code>COMMIT(op, n)</code> to all</li>
+</ul></li>
+<li>after receiving <span class="math inline">\(2f+1\)</span> matching <code>COMMIT(op, n)</code>
+<ul>
+<li>execute op</li>
+</ul></li>
+</ul>
+<h3 id="view-change-design-2-correct">View change design 2 (correct)</h3>
+<ul>
+<li>each replica sends new primary <span class="math inline">\(2f+1\)</span> PREPAREs for recent ops</li>
+<li>new primary waits for <span class="math inline">\(2f+1\)</span> <code>VIEW-CHANGE</code> requests</li>
+<li>new primary sends <code>NEW-VIEW</code> msg to all replicas with
+<ul>
+<li>complete set of <code>VIEW-CHANGE</code> msgs</li>
+<li>list of every op for which some VIEW-CHANGE contained 2f+1 PREPAREs</li>
+<li>i.e., list of final ops from last view</li>
+</ul></li>
+<li>If a replica executes an op, will new primary know of that op?</li>
+<li>replica only executed after receiving <span class="math inline">\(2f+1\)</span> COMMITS</li>
+<li>maybe <span class="math inline">\(f\)</span> of those were lies, from faulty replicas, who won’t tell new primary</li>
+<li>but <span class="math inline">\(f+1\)</span> COMMITs were from replicas that got <span class="math inline">\(2f+1\)</span> matching PREPAREs</li>
+<li>new primary waits for view-change requests from <span class="math inline">\(2f+1\)</span> replicas
+<ul>
+<li>ignoring the f faulty nodes</li>
+<li><span class="math inline">\(f+1\)</span> sent COMMITs, <span class="math inline">\(f+1\)</span> sent VIEW-CHANGE</li>
+<li>must overlap</li>
+</ul></li>
+</ul>
+<p>Can the new primary omit some of the reported recent operations?</p>
+<ul>
+<li>no, NEW-VIEW must include signed VIEW-CHANGE messages</li>
+</ul>
+<p>Paper also discusses</p>
+<ul>
+<li>checkpoints and logs to help good nodes recover</li>
+<li>various cryptographic optimizations</li>
+<li>optimizations to reduce # of msgs in common case</li>
+<li>fast read-only operations</li>
+</ul>
+<p>What are the consequences of more than <span class="math inline">\(f\)</span> corrupt servers?</p>
+<ul>
+<li>can the system recover?</li>
+</ul>
+<p>What if the client is corrupt?</p>
+<p>Suppose an attacker can corrupt one of the servers</p>
+<ul>
+<li>exploits a bug, or steals a password, or has physical access, &amp;c</li>
+<li>why can’t the attacker corrupt them all?</li>
+</ul>
+</body>
+</html>
